@@ -968,6 +968,86 @@ body {
   overflow-y: auto;
 }
 
+/* ── News & Analysis ── */
+
+/* News items */
+.news-section { margin-top: 8px; }
+.news-panel { padding: 14px; margin-top: 8px; }
+.news-item {
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+}
+.news-item:last-child { border-bottom: none; }
+.news-headline {
+  display: block;
+  font-size: 12px;
+  color: var(--text-primary);
+  line-height: 1.5;
+  text-decoration: none;
+  margin-bottom: 3px;
+}
+.news-headline:hover { color: var(--blue); text-decoration: underline; }
+.news-meta { display: flex; gap: 8px; align-items: center; }
+.news-source {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.news-time { font-size: 10px; color: var(--text-muted); font-family: var(--font-data); }
+
+/* Analysis panels */
+.analysis-section { margin-top: 8px; }
+.analysis-loading {
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 20px 0;
+  font-style: italic;
+}
+.analysis-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 6px;
+}
+@media (max-width: 650px) { .analysis-grid { grid-template-columns: 1fr; } }
+.analysis-panel {
+  padding: 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow);
+}
+.analysis-panel.bull { border-left: 3px solid var(--green); }
+.analysis-panel.bear { border-left: 3px solid var(--red); }
+.analysis-panel-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+.analysis-panel.bull .analysis-panel-title { color: var(--green); }
+.analysis-panel.bear .analysis-panel-title { color: var(--red); }
+.analysis-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin: 0 0 10px 0;
+}
+.catalyst-list { display: flex; flex-direction: column; gap: 5px; }
+.catalyst-item {
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 4px 0;
+  border-top: 1px solid var(--border);
+}
+.catalyst-item.bull { color: var(--green); }
+.catalyst-item.bear { color: var(--red); }
+.catalyst-item.muted { color: var(--text-muted); font-style: italic; }
+
 /* Colors */
 .c-green { color: var(--green); }
 .c-red { color: var(--red); }

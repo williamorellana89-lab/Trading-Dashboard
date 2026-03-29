@@ -789,6 +789,9 @@ function EconomicTab({ fred }) {
         <FredSection title="CURRENCY" items={byCategory.currency} />
       </div>
 
+      {/* Economic Outlook */}
+      <EconomicOutlook fred={fred} />
+
       <div style={{ fontSize: 10, color: 'var(--text-muted)', padding: '8px 0', textAlign: 'right' }}>
         Source: FRED (Federal Reserve Economic Data) | Updated: {formatTime(fred.fetchedAt)}
       </div>
@@ -894,6 +897,172 @@ function LookupChart({ symbol }) {
   );
 }
 
+// ── News & Analysis Components ──
+
+function NewsItem({ item }) {
+  return (
+    <div className="news-item">
+      <a href={item.url} target="_blank" rel="noopener noreferrer" className="news-headline">
+        {item.headline}
+      </a>
+      <div className="news-meta">
+        {item.source && <span className="news-source">{item.source}</span>}
+        {item.time && <span className="news-time">{item.time}</span>}
+      </div>
+    </div>
+  );
+}
+
+function StockAnalysis({ symbol }) {
+  const [analysis, setAnalysis] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!symbol) return;
+    setLoading(true);
+    setAnalysis(null);
+    fetch(`${API_BASE}/analysis?symbol=${symbol}`)
+      .then(r => r.json())
+      .then(d => { if (!d.error) setAnalysis(d); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [symbol]);
+
+  if (loading) return (
+    <div className="analysis-loading">Generating AI analysis...</div>
+  );
+  if (!analysis) return null;
+
+  return (
+    <div className="analysis-section">
+      <div className="detail-section-title">AI Analysis</div>
+      <div className="analysis-grid">
+        <div className="analysis-panel bull">
+          <div className="analysis-panel-title">Bull Case</div>
+          <p className="analysis-text">{analysis.bullCase}</p>
+          <div className="catalyst-list">
+            {analysis.bullCatalysts?.map((c, i) => (
+              <div key={i} className="catalyst-item bull">+ {c}</div>
+            ))}
+          </div>
+        </div>
+        <div className="analysis-panel bear">
+          <div className="analysis-panel-title">Bear Case</div>
+          <p className="analysis-text">{analysis.bearCase}</p>
+          <div className="catalyst-list">
+            {analysis.bearCatalysts?.map((c, i) => (
+              <div key={i} className="catalyst-item bear">− {c}</div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MarketOutlook({ scored }) {
+  if (!scored?.categories) return null;
+
+  const bullPoints = [];
+  const bearPoints = [];
+
+  const catLabels = { volatility: 'Volatility', trend: 'Trend', breadth: 'Breadth', momentum: 'Momentum', macro: 'Macro' };
+  Object.entries(scored.categories).forEach(([key, cat]) => {
+    if (!cat) return;
+    const label = `${catLabels[key] || key}: ${cat.interpretation}`;
+    if (cat.score >= 65) bullPoints.push(label);
+    else if (cat.score <= 40) bearPoints.push(label);
+  });
+
+  const ew = scored.executionWindow;
+  if (ew) {
+    if (ew.breakoutsHolding) bullPoints.push('Breakouts holding above key levels');
+    else bearPoints.push('Breakouts failing — sell pressure elevated');
+    if (ew.pullbacksBought) bullPoints.push('Pullbacks being bought — dip buyers active');
+    else bearPoints.push('Pullbacks not supported — buyers absent');
+  }
+
+  return (
+    <div className="analysis-section">
+      <div className="detail-section-title">Market Outlook</div>
+      <div className="analysis-grid">
+        <div className="analysis-panel bull">
+          <div className="analysis-panel-title">Bullish Signals</div>
+          {bullPoints.length
+            ? bullPoints.map((p, i) => <div key={i} className="catalyst-item bull">+ {p}</div>)
+            : <div className="catalyst-item muted">No strong bullish signals currently</div>}
+        </div>
+        <div className="analysis-panel bear">
+          <div className="analysis-panel-title">Bearish Signals</div>
+          {bearPoints.length
+            ? bearPoints.map((p, i) => <div key={i} className="catalyst-item bear">− {p}</div>)
+            : <div className="catalyst-item muted">No strong bearish signals currently</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MarketNews() {
+  const [news, setNews] = useState([]);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/market-news`)
+      .then(r => r.json())
+      .then(d => Array.isArray(d) && setNews(d))
+      .catch(() => {});
+  }, []);
+
+  if (!news.length) return null;
+
+  return (
+    <div className="panel news-panel">
+      <div className="panel-title">Market News</div>
+      {news.map((item, i) => <NewsItem key={i} item={item} />)}
+    </div>
+  );
+}
+
+function EconomicOutlook({ fred }) {
+  if (!fred?.series) return null;
+
+  const bullPoints = [];
+  const bearPoints = [];
+  const { yieldCurve, creditConditions, fedPolicy } = fred.derived || {};
+
+  if (yieldCurve?.inverted) bearPoints.push('Yield curve inverted — historical recession signal');
+  else if (yieldCurve?.spread10y2y != null) bullPoints.push(`Yield curve normal (10Y-2Y: ${yieldCurve.spread10y2y.toFixed(2)}%)`);
+
+  if (creditConditions?.stressed) bearPoints.push(`Credit spreads widening — HY spread ${creditConditions.hySpread?.toFixed(2)}%`);
+  else if (creditConditions?.hySpread != null) bullPoints.push(`Credit conditions stable — HY spread ${creditConditions.hySpread?.toFixed(2)}%`);
+
+  if (fedPolicy?.stance === 'accommodative') bullPoints.push('Fed policy accommodative — supportive for risk assets');
+  else if (fedPolicy?.stance === 'restrictive' || fedPolicy?.stance === 'very_restrictive') bearPoints.push(`Fed policy restrictive at ${fedPolicy.rate?.toFixed(2)}% — headwind for growth`);
+
+  Object.values(fred.series).forEach(s => {
+    if (!s.value) return;
+    const line = `${s.name}: ${s.value}${s.unit || ''}`;
+    if (s.classification?.color === 'green') bullPoints.push(line);
+    else if (s.classification?.color === 'red') bearPoints.push(line);
+  });
+
+  return (
+    <div className="analysis-section">
+      <div className="detail-section-title">Economic Outlook</div>
+      <div className="analysis-grid">
+        <div className="analysis-panel bull">
+          <div className="analysis-panel-title">Bullish Factors</div>
+          {bullPoints.slice(0, 6).map((p, i) => <div key={i} className="catalyst-item bull">+ {p}</div>)}
+        </div>
+        <div className="analysis-panel bear">
+          <div className="analysis-panel-title">Bearish Factors</div>
+          {bearPoints.slice(0, 6).map((p, i) => <div key={i} className="catalyst-item bear">− {p}</div>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StockDetail({ detail }) {
   const up = (detail.changePct ?? 0) >= 0;
   const w52Pct = (detail.fiftyTwoWeekHigh && detail.fiftyTwoWeekLow && detail.fiftyTwoWeekHigh !== detail.fiftyTwoWeekLow)
@@ -982,6 +1151,17 @@ function StockDetail({ detail }) {
         <div className="detail-section" style={{ marginTop: 12 }}>
           <div className="detail-section-title">About</div>
           <div className="detail-description">{detail.longBusinessSummary}</div>
+        </div>
+      )}
+
+      {/* AI Bull/Bear Analysis */}
+      <StockAnalysis symbol={detail.symbol} />
+
+      {/* Recent News */}
+      {detail.news?.length > 0 && (
+        <div className="detail-section news-section">
+          <div className="detail-section-title">Recent News</div>
+          {detail.news.map((item, i) => <NewsItem key={i} item={item} />)}
         </div>
       )}
     </div>
@@ -1280,6 +1460,12 @@ function App() {
               </div>
             </div>
           </div>
+
+          {/* Market Outlook */}
+          <MarketOutlook scored={scored} />
+
+          {/* Market News */}
+          <MarketNews />
         </div>
       ) : null}
     </>

@@ -2,7 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { fetchAllMarketData, fetchChart, fetchDailyQuote, calcRSI, calcSMA, fetchScreener, fetchTrending, fetchQuoteSummary } from './data/fetcher.js';
+import { fetchAllMarketData, fetchChart, fetchDailyQuote, calcRSI, calcSMA, fetchScreener, fetchTrending, fetchQuoteSummary, fetchMarketNews } from './data/fetcher.js';
+import Anthropic from '@anthropic-ai/sdk';
 import { fetchFredData } from './data/fred.js';
 import { computeScores } from './scoring/engine.js';
 
@@ -30,12 +31,20 @@ let screenerCache = {}; // per-screen cache
 let watchlistCache = {}; // per-symbol cache
 let detailCache = {};   // per-symbol quote detail cache
 let chartCache = {};    // per-symbol+range chart cache
+let analysisCache = {}; // per-symbol AI analysis cache
+let marketNewsCache = { data: null, timestamp: 0 };
 const MARKET_CACHE_TTL = 30_000;
 const FRED_CACHE_TTL = 300_000; // 5 min — FRED data updates daily, not intraday
 const SCREENER_CACHE_TTL = 60_000; // 1 min — screener data changes frequently
 const WATCHLIST_CACHE_TTL = 30_000;
 const DETAIL_CACHE_TTL = 30_000;
 const CHART_CACHE_TTL = 60_000;
+const ANALYSIS_CACHE_TTL = 4 * 60 * 60 * 1000; // 4 hours
+const MARKET_NEWS_CACHE_TTL = 5 * 60 * 1000;   // 5 minutes
+
+const anthropic = process.env.ANTHROPIC_API_KEY
+  ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  : null;
 
 // Score history (in-memory, max 200 entries)
 let scoreHistory = [];
@@ -233,6 +242,7 @@ app.get('/api/quote-detail', async (req, res) => {
     if (summary && summary.price) {
       detail = {
         ...summary,
+        news: summary.news || [],
         intraDayBars: chartIntraday?.bars?.map(b => ({ t: b.date, c: b.close })) || [],
       };
     } else {
@@ -271,6 +281,7 @@ app.get('/api/quote-detail', async (req, res) => {
         industry: summary?.industry ?? null,
         longBusinessSummary: null,
         fullTimeEmployees: summary?.fullTimeEmployees ?? null,
+        news: summary?.news || [],
         intraDayBars: chartIntraday?.bars?.map(b => ({ t: b.date, c: b.close })) || [],
       };
     }
@@ -312,6 +323,83 @@ app.get('/api/chart', async (req, res) => {
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch chart data', details: err.message });
+  }
+});
+
+app.get('/api/market-news', async (req, res) => {
+  const now = Date.now();
+  if (marketNewsCache.data && (now - marketNewsCache.timestamp) < MARKET_NEWS_CACHE_TTL) {
+    return res.json(marketNewsCache.data);
+  }
+  try {
+    const news = await fetchMarketNews();
+    marketNewsCache = { data: news, timestamp: now };
+    res.json(news);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch market news', details: err.message });
+  }
+});
+
+app.get('/api/analysis', async (req, res) => {
+  const symbol = (req.query.symbol || '').toUpperCase().trim();
+  if (!symbol || !/^[A-Z0-9.\-\^]{1,10}$/.test(symbol)) {
+    return res.status(400).json({ error: 'Invalid symbol' });
+  }
+
+  if (!anthropic) {
+    return res.status(503).json({ error: 'AI analysis unavailable: ANTHROPIC_API_KEY not set' });
+  }
+
+  const now = Date.now();
+  const cached = analysisCache[symbol];
+  if (cached && (now - cached.timestamp) < ANALYSIS_CACHE_TTL) {
+    return res.json(cached.data);
+  }
+
+  // Grab latest detail data to inform analysis
+  const detail = detailCache[symbol]?.data || null;
+  if (!detail) {
+    return res.status(404).json({ error: 'Fetch quote detail first before requesting analysis' });
+  }
+
+  try {
+    const pctOf52W = detail.fiftyTwoWeekHigh && detail.fiftyTwoWeekLow
+      ? Math.round(((detail.price - detail.fiftyTwoWeekLow) / (detail.fiftyTwoWeekHigh - detail.fiftyTwoWeekLow)) * 100)
+      : null;
+
+    const prompt = `You are a concise financial analyst. Given this stock data, respond with ONLY valid JSON (no markdown, no explanation):
+
+Symbol: ${symbol}
+Company: ${detail.name}
+Sector: ${detail.sector || 'N/A'} | Industry: ${detail.industry || 'N/A'}
+Price: $${detail.price?.toFixed(2)} (${detail.changePct?.toFixed(2)}% today)
+Market Cap: ${detail.marketCap ? '$' + (detail.marketCap / 1e9).toFixed(1) + 'B' : 'N/A'}
+P/E (TTM): ${detail.trailingPE ?? 'N/A'} | Fwd P/E: ${detail.forwardPE ?? 'N/A'} | PEG: ${detail.pegRatio ?? 'N/A'}
+P/B: ${detail.priceToBook ?? 'N/A'} | EV/EBITDA: ${detail.enterpriseToEbitda ?? 'N/A'} | P/S: ${detail.priceToSalesTrailing12Months ?? 'N/A'}
+Beta: ${detail.beta ?? 'N/A'} | Dividend Yield: ${detail.dividendYield ? detail.dividendYield + '%' : 'None'}
+52W Range: $${detail.fiftyTwoWeekLow} - $${detail.fiftyTwoWeekHigh} (currently ${pctOf52W ?? '?'}% of range)
+
+Return exactly this JSON structure:
+{
+  "bullCase": "2-3 sentence bull case for this stock",
+  "bearCase": "2-3 sentence bear case for this stock",
+  "bullCatalysts": ["catalyst 1", "catalyst 2", "catalyst 3"],
+  "bearCatalysts": ["risk 1", "risk 2", "risk 3"]
+}`;
+
+    const message = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 512,
+      messages: [{ role: 'user', content: prompt }]
+    });
+
+    const text = message.content[0]?.text || '{}';
+    const data = JSON.parse(text);
+    analysisCache[symbol] = { data, timestamp: now };
+    res.json(data);
+  } catch (err) {
+    console.error(`Analysis error for ${symbol}:`, err.message);
+    res.status(500).json({ error: 'Analysis failed', details: err.message });
   }
 });
 

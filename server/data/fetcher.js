@@ -310,6 +310,32 @@ async function fetchFinvizData(symbol) {
     const bookPerShare = parseFinvizNum(map['Book/sh']);
     const priceToBook = price && bookPerShare ? parseFloat((price / bookPerShare).toFixed(2)) : null;
 
+    // Extract news items from news-table
+    const news = [];
+    const newsTableMatch = html.match(/<table[^>]*id="news-table"[^>]*>([\s\S]*?)<\/table>/);
+    if (newsTableMatch) {
+      const rows = newsTableMatch[1].split('<tr').slice(1);
+      let lastDate = '';
+      for (const row of rows) {
+        if (!row.includes('tab-link-news')) continue;
+        const tdMatch = row.match(/<td[^>]*>\s*([\w\-\s:,]+?)\s*<\/td>/);
+        const urlMatch = row.match(/href="([^"]+)"/);
+        const headlineMatch = row.match(/class="tab-link-news"[^>]*>([^<]+)<\/a>/);
+        const sourceMatch = row.match(/<span>\(([^)]+)\)<\/span>/);
+        if (!headlineMatch || !urlMatch) continue;
+        const timeRaw = tdMatch?.[1]?.trim() || '';
+        if (timeRaw.includes('-')) lastDate = timeRaw.split(' ')[0]; // e.g. "Mar-28-26"
+        const timeStr = timeRaw.includes('-') ? timeRaw : `${lastDate} ${timeRaw}`;
+        news.push({
+          headline: headlineMatch[1].trim(),
+          url: urlMatch[1],
+          source: sourceMatch?.[1]?.trim() || '',
+          time: timeStr,
+        });
+        if (news.length >= 10) break;
+      }
+    }
+
     return {
       trailingPE: parseFinvizNum(map['P/E']),
       forwardPE: parseFinvizNum(map['Forward P/E']),
@@ -324,6 +350,7 @@ async function fetchFinvizData(symbol) {
       employees: parseFinvizNum(map['Employees']),
       sector: sectorMatch?.[1]?.trim() || null,
       industry: industryMatch?.[1]?.trim() || null,
+      news,
     };
   } catch (e) {
     console.warn(`Finviz fetch error for ${symbol}:`, e.message);
@@ -418,7 +445,31 @@ async function fetchQuoteSummary(symbol) {
     industry: fvData?.industry ?? null,
     longBusinessSummary: null,
     fullTimeEmployees: fvData?.employees ?? null,
+    news: fvData?.news || [],
   };
+}
+
+// Fetch market news via SPY + QQQ quote pages (proxy for broad market news)
+export async function fetchMarketNews() {
+  try {
+    const [spyData, qqqData] = await Promise.all([
+      fetchFinvizData('SPY'),
+      fetchFinvizData('QQQ'),
+    ]);
+    // Merge and deduplicate by headline
+    const seen = new Set();
+    const merged = [];
+    for (const item of [...(spyData?.news || []), ...(qqqData?.news || [])]) {
+      if (!seen.has(item.headline)) {
+        seen.add(item.headline);
+        merged.push(item);
+      }
+    }
+    return merged.slice(0, 15);
+  } catch (e) {
+    console.warn('Market news error:', e.message);
+    return [];
+  }
 }
 
 export { fetchChart, fetchDailyQuote, calcRSI, calcSMA, fetchScreener, fetchTrending, fetchQuoteSummary };
