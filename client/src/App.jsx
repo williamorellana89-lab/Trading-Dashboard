@@ -204,6 +204,7 @@ function TickerBar({ quotes, fetchedAt, onRefresh, loading, mode, onModeChange, 
       <div className="mode-toggle">
         <button className={`mode-btn ${tab === 'market' ? 'active' : ''}`} onClick={() => onTabChange('market')}>Market</button>
         <button className={`mode-btn ${tab === 'economic' ? 'active' : ''}`} onClick={() => onTabChange('economic')}>Economic</button>
+        <button className={`mode-btn ${tab === 'lookup' ? 'active' : ''}`} onClick={() => onTabChange('lookup')}>Lookup</button>
       </div>
       <div className="mode-toggle" style={{ marginLeft: 4 }}>
         <button className={`mode-btn ${mode === 'swing' ? 'active' : ''}`} onClick={() => onModeChange('swing')}>Swing</button>
@@ -795,6 +796,273 @@ function EconomicTab({ fred }) {
   );
 }
 
+// ── Stock Lookup Tab ──
+
+const CHART_RANGES = [
+  { label: '1D', range: '1d', interval: '5m' },
+  { label: '1W', range: '5d', interval: '15m' },
+  { label: '1M', range: '1mo', interval: '1d' },
+  { label: '3M', range: '3mo', interval: '1d' },
+  { label: '1Y', range: '1y', interval: '1d' },
+];
+
+function fmt(v, decimals = 2) {
+  if (v == null || isNaN(v)) return '—';
+  return Number(v).toFixed(decimals);
+}
+function fmtPct(v) { if (v == null) return '—'; return `${v >= 0 ? '+' : ''}${Number(v).toFixed(2)}%`; }
+function fmtCap(v) {
+  if (v == null) return '—';
+  if (v >= 1e12) return `${(v / 1e12).toFixed(2)}T`;
+  if (v >= 1e9) return `${(v / 1e9).toFixed(2)}B`;
+  if (v >= 1e6) return `${(v / 1e6).toFixed(2)}M`;
+  return v.toLocaleString();
+}
+function fmtVol(v) {
+  if (v == null) return '—';
+  if (v >= 1e9) return `${(v / 1e9).toFixed(2)}B`;
+  if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
+  if (v >= 1e3) return `${(v / 1e3).toFixed(0)}K`;
+  return v.toString();
+}
+
+function LookupChart({ symbol }) {
+  const [activeRange, setActiveRange] = useState(CHART_RANGES[0]);
+  const [bars, setBars] = useState([]);
+  const [chartLoading, setChartLoading] = useState(false);
+
+  useEffect(() => {
+    if (!symbol) return;
+    setChartLoading(true);
+    fetch(`${API_BASE}/chart?symbol=${symbol}&range=${activeRange.range}&interval=${activeRange.interval}`)
+      .then(r => r.json())
+      .then(d => { setBars(d.bars || []); setChartLoading(false); })
+      .catch(() => setChartLoading(false));
+  }, [symbol, activeRange]);
+
+  const closes = bars.map(b => b.c).filter(Boolean);
+  if (!closes.length && !chartLoading) return null;
+
+  const min = Math.min(...closes);
+  const max = Math.max(...closes);
+  const range = max - min || 1;
+  const W = 700, H = 100;
+  const pts = closes.map((c, i) => {
+    const x = (i / Math.max(closes.length - 1, 1)) * W;
+    const y = H - ((c - min) / range) * H;
+    return `${x},${y}`;
+  });
+  const isUp = closes.length >= 2 && closes[closes.length - 1] >= closes[0];
+  const color = isUp ? 'var(--green)' : 'var(--red)';
+  const polyline = pts.join(' ');
+  const areaPath = closes.length >= 2
+    ? `M0,${H} L${pts.join(' L')} L${W},${H} Z`
+    : '';
+
+  return (
+    <div className="lookup-chart">
+      <div className="chart-tabs">
+        {CHART_RANGES.map(r => (
+          <button
+            key={r.label}
+            className={`chart-tab-btn ${activeRange.label === r.label ? 'active' : ''}`}
+            onClick={() => setActiveRange(r)}
+          >{r.label}</button>
+        ))}
+      </div>
+      <div style={{ position: 'relative', height: H + 4 }}>
+        {chartLoading ? (
+          <div className="skeleton" style={{ height: H, borderRadius: 4 }} />
+        ) : (
+          <svg width="100%" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ display: 'block' }}>
+            <defs>
+              <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={color} stopOpacity="0.25" />
+                <stop offset="100%" stopColor={color} stopOpacity="0.02" />
+              </linearGradient>
+            </defs>
+            {areaPath && <path d={areaPath} fill="url(#chartGrad)" />}
+            <polyline points={polyline} fill="none" stroke={color} strokeWidth="1.5" />
+          </svg>
+        )}
+      </div>
+      <div className="chart-range-labels">
+        <span>{closes.length ? `Low: ${fmt(min)}` : ''}</span>
+        <span>{closes.length ? `High: ${fmt(max)}` : ''}</span>
+      </div>
+    </div>
+  );
+}
+
+function StockDetail({ detail }) {
+  const up = (detail.changePct ?? 0) >= 0;
+  const w52Pct = (detail.fiftyTwoWeekHigh && detail.fiftyTwoWeekLow && detail.fiftyTwoWeekHigh !== detail.fiftyTwoWeekLow)
+    ? ((detail.price - detail.fiftyTwoWeekLow) / (detail.fiftyTwoWeekHigh - detail.fiftyTwoWeekLow)) * 100
+    : null;
+
+  const valuation = [
+    { label: 'P/E Ratio (TTM)', value: detail.trailingPE != null ? fmt(detail.trailingPE) : '—' },
+    { label: 'Forward P/E', value: detail.forwardPE != null ? fmt(detail.forwardPE) : '—' },
+    { label: 'Price/Book', value: detail.priceToBook != null ? fmt(detail.priceToBook) : '—' },
+    { label: 'EV/EBITDA', value: detail.enterpriseToEbitda != null ? fmt(detail.enterpriseToEbitda) : '—' },
+    { label: 'PEG Ratio', value: detail.pegRatio != null ? fmt(detail.pegRatio) : '—' },
+    { label: 'Dividend Yield', value: detail.dividendYield != null ? `${fmt(detail.dividendYield)}%` : '—' },
+  ];
+  const keyStats = [
+    { label: 'Market Cap', value: fmtCap(detail.marketCap) },
+    { label: 'Beta', value: detail.beta != null ? fmt(detail.beta) : '—' },
+    { label: '52W High', value: detail.fiftyTwoWeekHigh != null ? fmt(detail.fiftyTwoWeekHigh) : '—' },
+    { label: '52W Low', value: detail.fiftyTwoWeekLow != null ? fmt(detail.fiftyTwoWeekLow) : '—' },
+    { label: 'Volume', value: fmtVol(detail.volume) },
+    { label: 'Avg Volume', value: fmtVol(detail.avgVolume) },
+  ];
+
+  return (
+    <div className="stock-detail">
+      {/* Header */}
+      <div className="stock-detail-header">
+        <div className="stock-detail-name">
+          <span className="sdh-symbol">{detail.symbol}</span>
+          <span className="sdh-name">{detail.name}</span>
+          {(detail.exchange || detail.sector) && (
+            <span className="sdh-meta">
+              {[detail.exchange, detail.sector, detail.industry].filter(Boolean).join(' · ')}
+            </span>
+          )}
+        </div>
+        <div className="stock-detail-price">
+          <span className="sdp-price">{fmt(detail.price)}</span>
+          <span className={`sdp-change ${up ? 'up' : 'down'}`}>
+            {up ? '+' : ''}{fmt(detail.change)} ({fmtPct(detail.changePct)})
+          </span>
+        </div>
+      </div>
+
+      {/* 52-week range bar */}
+      {w52Pct != null && (
+        <div className="sc-range-wrap" style={{ padding: '10px 0 4px' }}>
+          <span className="sc-range-lo">{fmt(detail.fiftyTwoWeekLow)}</span>
+          <div className="sc-range-bar">
+            <div className="sc-range-track">
+              <div className="sc-range-dot" style={{ left: `${Math.min(Math.max(w52Pct, 0), 100)}%` }} />
+            </div>
+          </div>
+          <span className="sc-range-hi">{fmt(detail.fiftyTwoWeekHigh)}</span>
+          <span style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 8 }}>52W Range</span>
+        </div>
+      )}
+
+      {/* Chart */}
+      <LookupChart symbol={detail.symbol} />
+
+      {/* Data grid */}
+      <div className="detail-grid">
+        <div className="detail-section">
+          <div className="detail-section-title">Valuation</div>
+          {valuation.map(r => (
+            <div className="detail-row" key={r.label}>
+              <span className="detail-label">{r.label}</span>
+              <span className="detail-value">{r.value}</span>
+            </div>
+          ))}
+        </div>
+        <div className="detail-section">
+          <div className="detail-section-title">Key Statistics</div>
+          {keyStats.map(r => (
+            <div className="detail-row" key={r.label}>
+              <span className="detail-label">{r.label}</span>
+              <span className="detail-value">{r.value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Company description */}
+      {detail.longBusinessSummary && (
+        <div className="detail-section" style={{ marginTop: 12 }}>
+          <div className="detail-section-title">About</div>
+          <div className="detail-description">{detail.longBusinessSummary}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StockLookup() {
+  const [input, setInput] = useState('');
+  const [detail, setDetail] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const search = async (sym) => {
+    const s = (sym || input).toUpperCase().trim();
+    if (!s) return;
+    setLoading(true);
+    setError(null);
+    setDetail(null);
+    try {
+      const res = await fetch(`${API_BASE}/quote-detail?symbol=${s}`);
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      setDetail(await res.json());
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="dashboard">
+      <div className="lookup-search-wrap">
+        <div className="lookup-search-bar">
+          <input
+            className="lookup-input"
+            value={input}
+            onChange={e => setInput(e.target.value.toUpperCase())}
+            onKeyDown={e => e.key === 'Enter' && search()}
+            placeholder="Enter ticker symbol (e.g. AAPL, TSLA, SPY)"
+            spellCheck={false}
+            autoComplete="off"
+          />
+          <button className="lookup-btn" onClick={() => search()} disabled={loading}>
+            {loading ? '...' : 'SEARCH'}
+          </button>
+        </div>
+        <div className="lookup-suggestions">
+          {['AAPL','TSLA','NVDA','MSFT','AMZN','META','GOOGL','SPY','QQQ','BTC-USD'].map(s => (
+            <button key={s} className="lookup-pill" onClick={() => { setInput(s); search(s); }}>{s}</button>
+          ))}
+        </div>
+      </div>
+
+      {error && (
+        <div className="error-banner">No data found for "{input}". Check the ticker and try again.</div>
+      )}
+
+      {loading && (
+        <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: 12 }}>
+          Loading {input}...
+        </div>
+      )}
+
+      {detail && !loading && <StockDetail detail={detail} />}
+
+      {!detail && !loading && !error && (
+        <div className="lookup-empty">
+          <div className="lookup-empty-icon">🔍</div>
+          <div>Search any stock, ETF, or crypto ticker above</div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+            Valuation metrics, key statistics, and price charts
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Loading skeleton
 function LoadingSkeleton() {
   return (
@@ -958,6 +1226,8 @@ function App() {
 
       {!data && loading ? (
         <LoadingSkeleton />
+      ) : tab === 'lookup' ? (
+        <StockLookup />
       ) : tab === 'economic' ? (
         <EconomicTab fred={fred} />
       ) : data ? (

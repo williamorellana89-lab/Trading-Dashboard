@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { fetchAllMarketData, fetchChart, fetchDailyQuote, calcRSI, calcSMA, fetchScreener, fetchTrending } from './data/fetcher.js';
+import { fetchAllMarketData, fetchChart, fetchDailyQuote, calcRSI, calcSMA, fetchScreener, fetchTrending, fetchQuoteSummary } from './data/fetcher.js';
 import { fetchFredData } from './data/fred.js';
 import { computeScores } from './scoring/engine.js';
 
@@ -28,10 +28,14 @@ let marketCache = { data: null, timestamp: 0 };
 let fredCache = { data: null, timestamp: 0 };
 let screenerCache = {}; // per-screen cache
 let watchlistCache = {}; // per-symbol cache
+let detailCache = {};   // per-symbol quote detail cache
+let chartCache = {};    // per-symbol+range chart cache
 const MARKET_CACHE_TTL = 30_000;
 const FRED_CACHE_TTL = 300_000; // 5 min — FRED data updates daily, not intraday
 const SCREENER_CACHE_TTL = 60_000; // 1 min — screener data changes frequently
 const WATCHLIST_CACHE_TTL = 30_000;
+const DETAIL_CACHE_TTL = 30_000;
+const CHART_CACHE_TTL = 60_000;
 
 // Score history (in-memory, max 200 entries)
 let scoreHistory = [];
@@ -202,6 +206,112 @@ app.get('/api/quote', async (req, res) => {
     res.json(results.filter(Boolean));
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch quote data', details: err.message });
+  }
+});
+
+app.get('/api/quote-detail', async (req, res) => {
+  const symbol = (req.query.symbol || '').toUpperCase().trim();
+  if (!symbol || !/^[A-Z0-9.\-\^]{1,10}$/.test(symbol)) {
+    return res.status(400).json({ error: 'Invalid symbol' });
+  }
+
+  const now = Date.now();
+  const cached = detailCache[symbol];
+  if (cached && (now - cached.timestamp) < DETAIL_CACHE_TTL) {
+    return res.json(cached.data);
+  }
+
+  try {
+    // Try quoteSummary first; fall back to chart-based data if auth-gated
+    const [summary, chart1y, chartIntraday] = await Promise.all([
+      fetchQuoteSummary(symbol),
+      fetchChart(symbol, '1y', '1d'),
+      fetchChart(symbol, '1d', '5m')
+    ]);
+
+    let detail;
+    if (summary && summary.price) {
+      detail = {
+        ...summary,
+        intraDayBars: chartIntraday?.bars?.map(b => ({ t: b.date, c: b.close })) || [],
+      };
+    } else {
+      // YF auth-gated: build price from chart, merge valuation from summary (Finviz)
+      const quote = await fetchDailyQuote(symbol);
+      if (!quote) return res.status(404).json({ error: `No data found for ${symbol}` });
+      const bars = chart1y?.bars || [];
+      const meta = chart1y?.meta || {};
+      const w52High = meta.fiftyTwoWeekHigh || (bars.length ? Math.max(...bars.map(b => b.high)) : null);
+      const w52Low = meta.fiftyTwoWeekLow || (bars.length ? Math.min(...bars.map(b => b.low)) : null);
+      const last60 = bars.slice(-60);
+      const avgVol = last60.length ? Math.round(last60.reduce((s, b) => s + b.volume, 0) / last60.length) : null;
+      detail = {
+        symbol,
+        name: (summary?.name && summary.name !== symbol) ? summary.name : (meta.longName || meta.shortName || symbol),
+        exchange: null, currency: 'USD',
+        price: quote.regularMarketPrice,
+        change: quote.regularMarketPrice - quote.regularMarketPreviousClose,
+        changePct: quote.regularMarketChangePercent,
+        previousClose: quote.regularMarketPreviousClose,
+        open: null, dayHigh: null, dayLow: null,
+        marketCap: summary?.marketCap ?? null,
+        volume: bars.length ? bars[bars.length - 1].volume : null,
+        avgVolume: summary?.avgVolume ?? avgVol,
+        beta: summary?.beta ?? null,
+        fiftyTwoWeekHigh: w52High, fiftyTwoWeekLow: w52Low,
+        fiftyDayAverage: null, twoHundredDayAverage: null,
+        dividendYield: summary?.dividendYield ?? null,
+        trailingPE: summary?.trailingPE ?? null,
+        forwardPE: summary?.forwardPE ?? null,
+        priceToBook: summary?.priceToBook ?? null,
+        enterpriseToEbitda: summary?.enterpriseToEbitda ?? null,
+        pegRatio: summary?.pegRatio ?? null,
+        priceToSalesTrailing12Months: summary?.priceToSalesTrailing12Months ?? null,
+        sector: summary?.sector ?? null,
+        industry: summary?.industry ?? null,
+        longBusinessSummary: null,
+        fullTimeEmployees: summary?.fullTimeEmployees ?? null,
+        intraDayBars: chartIntraday?.bars?.map(b => ({ t: b.date, c: b.close })) || [],
+      };
+    }
+
+    detailCache[symbol] = { data: detail, timestamp: now };
+    res.json(detail);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch quote detail', details: err.message });
+  }
+});
+
+app.get('/api/chart', async (req, res) => {
+  const symbol = (req.query.symbol || '').toUpperCase().trim();
+  const range = req.query.range || '1d';
+  const interval = req.query.interval || '5m';
+
+  if (!symbol || !/^[A-Z0-9.\-\^]{1,10}$/.test(symbol)) {
+    return res.status(400).json({ error: 'Invalid symbol' });
+  }
+  const validRanges = ['1d', '5d', '1mo', '3mo', '1y'];
+  if (!validRanges.includes(range)) return res.status(400).json({ error: 'Invalid range' });
+
+  const cacheKey = `${symbol}:${range}:${interval}`;
+  const now = Date.now();
+  const cached = chartCache[cacheKey];
+  if (cached && (now - cached.timestamp) < CHART_CACHE_TTL) {
+    return res.json(cached.data);
+  }
+
+  try {
+    const chart = await fetchChart(symbol, range, interval);
+    if (!chart) return res.status(404).json({ error: `No chart data for ${symbol}` });
+
+    const data = {
+      bars: chart.bars.map(b => ({ t: b.date, c: b.close, h: b.high, l: b.low, v: b.volume })),
+      meta: chart.meta
+    };
+    chartCache[cacheKey] = { data, timestamp: now };
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch chart data', details: err.message });
   }
 });
 

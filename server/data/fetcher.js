@@ -1,5 +1,6 @@
-// Direct Yahoo Finance API fetcher — no library dependency
-// Uses the v8 chart endpoint which doesn't require crumb/cookie auth
+// Yahoo Finance data fetcher
+// Uses v8 chart endpoint (no auth) for price data and yahoo-finance2 for fundamentals
+import yahooFinance from 'yahoo-finance2';
 
 const SECTOR_ETFS = {
   XLK: 'Technology', XLF: 'Financials', XLE: 'Energy', XLV: 'Healthcare',
@@ -273,7 +274,154 @@ async function fetchTrending(count = 25) {
   }
 }
 
-export { fetchChart, fetchDailyQuote, calcRSI, calcSMA, fetchScreener, fetchTrending };
+// ── Finviz scraper for valuation metrics ──
+
+function parseFinvizNum(str) {
+  if (!str || str === '-') return null;
+  const s = str.replace(/[,%]/g, '').trim();
+  if (s.endsWith('B')) return parseFloat(s) * 1e9;
+  if (s.endsWith('M')) return parseFloat(s) * 1e6;
+  if (s.endsWith('K')) return parseFloat(s) * 1e3;
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+
+async function fetchFinvizData(symbol) {
+  const url = `https://finviz.com/quote.ashx?t=${encodeURIComponent(symbol)}`;
+  try {
+    const res = await fetch(url, { headers: HEADERS });
+    if (!res.ok) return null;
+    const html = await res.text();
+
+    // Extract label→value pairs from the snapshot table (handles plain and span-wrapped values)
+    const map = {};
+    const pat = /data-boxover-html="[^"]*">([^<]+)<\/td><td[^>]*><b>(?:<span[^>]*>)?([^<]*)(?:<\/span>)?<\/b>/g;
+    let m;
+    while ((m = pat.exec(html)) !== null) {
+      map[m[1].trim()] = m[2].trim();
+    }
+
+    // Sector and industry are in screener links
+    const sectorMatch = html.match(/screener\.ashx\?[^"]*f=sec_[^"]*"[^>]*>([^<]+)<\/a>/);
+    const industryMatch = html.match(/screener\.ashx\?[^"]*f=ind_[^"]*"[^>]*title="([^"]+)"/);
+
+    // Compute P/B from price and book-per-share when Finviz doesn't give the ratio directly
+    const price = parseFinvizNum(map['Price']);
+    const bookPerShare = parseFinvizNum(map['Book/sh']);
+    const priceToBook = price && bookPerShare ? parseFloat((price / bookPerShare).toFixed(2)) : null;
+
+    return {
+      trailingPE: parseFinvizNum(map['P/E']),
+      forwardPE: parseFinvizNum(map['Forward P/E']),
+      pegRatio: parseFinvizNum(map['PEG']),
+      priceToBook,
+      priceToSalesTrailing12Months: parseFinvizNum(map['P/S']),
+      enterpriseToEbitda: parseFinvizNum(map['EV/EBITDA']),
+      beta: parseFinvizNum(map['Beta']),
+      dividendYield: parseFinvizNum(map['Dividend %']) ?? parseFinvizNum(map['Div Rate TTM']),
+      marketCap: parseFinvizNum(map['Market Cap']),
+      avgVolume: parseFinvizNum(map['Avg Volume']),
+      employees: parseFinvizNum(map['Employees']),
+      sector: sectorMatch?.[1]?.trim() || null,
+      industry: industryMatch?.[1]?.trim() || null,
+    };
+  } catch (e) {
+    console.warn(`Finviz fetch error for ${symbol}:`, e.message);
+    return null;
+  }
+}
+
+// ── Quote Summary: yahoo-finance2 with Finviz fallback ──
+
+const _yfInstance = new yahooFinance();
+
+async function fetchQuoteSummary(symbol) {
+  // Try yahoo-finance2 first (has auth handling)
+  let yfData = null;
+  try {
+    const q = await _yfInstance.quote(symbol);
+    if (q && q.regularMarketPrice) {
+      const divYield = q.trailingAnnualDividendYield != null
+        ? q.trailingAnnualDividendYield * 100 : null;
+      yfData = {
+        symbol: (q.symbol || symbol).toUpperCase(),
+        name: q.longName || q.shortName || symbol.toUpperCase(),
+        exchange: q.fullExchangeName || q.exchange || null,
+        currency: q.currency || 'USD',
+        price: q.regularMarketPrice ?? null,
+        change: q.regularMarketChange ?? null,
+        changePct: q.regularMarketChangePercent ?? null,
+        previousClose: q.regularMarketPreviousClose ?? null,
+        open: q.regularMarketOpen ?? null,
+        dayHigh: q.regularMarketDayHigh ?? null,
+        dayLow: q.regularMarketDayLow ?? null,
+        marketCap: q.marketCap ?? null,
+        volume: q.regularMarketVolume ?? null,
+        avgVolume: q.averageDailyVolume3Month ?? q.averageDailyVolume10Day ?? null,
+        beta: q.beta ?? null,
+        fiftyTwoWeekHigh: q.fiftyTwoWeekHigh ?? null,
+        fiftyTwoWeekLow: q.fiftyTwoWeekLow ?? null,
+        fiftyDayAverage: q.fiftyDayAverage ?? null,
+        twoHundredDayAverage: q.twoHundredDayAverage ?? null,
+        dividendYield: divYield,
+        trailingPE: q.trailingPE ?? null,
+        forwardPE: q.forwardPE ?? null,
+        priceToBook: q.priceToBook ?? null,
+        pegRatio: null,
+        enterpriseToEbitda: null,
+        priceToSalesTrailing12Months: null,
+        totalRevenue: null, profitMargins: null, operatingMargins: null,
+        returnOnEquity: null, debtToEquity: null, currentRatio: null,
+        sector: null, industry: null, longBusinessSummary: null, fullTimeEmployees: null,
+      };
+    }
+  } catch (e) {
+    console.warn(`yahoo-finance2 quote error for ${symbol}:`, e.message.slice(0, 80));
+  }
+
+  // Always enrich with Finviz (fills in PE, beta, sector, etc. when YF fails)
+  const fvData = await fetchFinvizData(symbol);
+
+  if (!yfData && !fvData) return null;
+
+  // Merge: yfData takes priority for price data; fvData fills gaps in valuation
+  return {
+    symbol: yfData?.symbol || symbol.toUpperCase(),
+    name: yfData?.name || symbol.toUpperCase(),
+    exchange: yfData?.exchange || null,
+    currency: yfData?.currency || 'USD',
+    price: yfData?.price ?? null,
+    change: yfData?.change ?? null,
+    changePct: yfData?.changePct ?? null,
+    previousClose: yfData?.previousClose ?? null,
+    open: yfData?.open ?? null,
+    dayHigh: yfData?.dayHigh ?? null,
+    dayLow: yfData?.dayLow ?? null,
+    marketCap: yfData?.marketCap ?? fvData?.marketCap ?? null,
+    volume: yfData?.volume ?? null,
+    avgVolume: yfData?.avgVolume ?? fvData?.avgVolume ?? null,
+    beta: yfData?.beta ?? fvData?.beta ?? null,
+    fiftyTwoWeekHigh: yfData?.fiftyTwoWeekHigh ?? null,
+    fiftyTwoWeekLow: yfData?.fiftyTwoWeekLow ?? null,
+    fiftyDayAverage: yfData?.fiftyDayAverage ?? null,
+    twoHundredDayAverage: yfData?.twoHundredDayAverage ?? null,
+    dividendYield: yfData?.dividendYield ?? fvData?.dividendYield ?? null,
+    trailingPE: yfData?.trailingPE ?? fvData?.trailingPE ?? null,
+    forwardPE: yfData?.forwardPE ?? fvData?.forwardPE ?? null,
+    priceToBook: yfData?.priceToBook ?? fvData?.priceToBook ?? null,
+    pegRatio: fvData?.pegRatio ?? null,
+    priceToSalesTrailing12Months: fvData?.priceToSalesTrailing12Months ?? null,
+    enterpriseToEbitda: fvData?.enterpriseToEbitda ?? null,
+    totalRevenue: null, profitMargins: null, operatingMargins: null,
+    returnOnEquity: null, debtToEquity: null, currentRatio: null,
+    sector: fvData?.sector ?? null,
+    industry: fvData?.industry ?? null,
+    longBusinessSummary: null,
+    fullTimeEmployees: fvData?.employees ?? null,
+  };
+}
+
+export { fetchChart, fetchDailyQuote, calcRSI, calcSMA, fetchScreener, fetchTrending, fetchQuoteSummary };
 
 export async function fetchAllMarketData() {
   // Fetch ALL data via chart v8 endpoint in parallel (no auth needed)
