@@ -1211,6 +1211,18 @@ function MarketBriefing() {
     );
   }
 
+  const BriefingSection = ({ item, isTop }) => (
+    <div className={`briefing-section${isTop ? ' briefing-section-top' : ''}`}>
+      <div className="briefing-section-title">{item.title}</div>
+      <p className="briefing-section-body">{item.body}</p>
+      {item.implication && (
+        <div className="briefing-implication">
+          {item.implication}
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div className="market-briefing">
       <div className="briefing-header">
@@ -1218,14 +1230,11 @@ function MarketBriefing() {
         {data.topTheme && <span className="briefing-theme">{data.topTheme}</span>}
         {data.updatedAt && <span className="briefing-time">{new Date(data.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
       </div>
-      <div className="briefing-body">
-        {data.paragraph1 && <p className="briefing-para">{data.paragraph1}</p>}
-        {data.paragraph2 && <p className="briefing-para">{data.paragraph2}</p>}
-        {data.paragraph3 && <p className="briefing-para">{data.paragraph3}</p>}
-      </div>
+
+      {/* Headlines strip */}
       {data.headlines?.length > 0 && (
-        <div className="briefing-sources">
-          <div className="briefing-sources-label">Sources</div>
+        <div className="briefing-sources" style={{ borderBottom: '1px solid var(--border)', borderTop: 'none' }}>
+          <div className="briefing-sources-label">Live Headlines</div>
           {data.headlines.map((n, i) => (
             <div key={i} className="news-item">
               <a className="news-headline" href={n.url} target="_blank" rel="noopener noreferrer">{n.headline}</a>
@@ -1237,6 +1246,29 @@ function MarketBriefing() {
           ))}
         </div>
       )}
+
+      {/* Structured analysis */}
+      <div className="briefing-body">
+        {data.topEvent && <BriefingSection item={data.topEvent} isTop />}
+        {data.developments?.map((d, i) => <BriefingSection key={i} item={d} />)}
+        {data.institutionalSignals?.length > 0 && (
+          <>
+            <div className="briefing-subsection-label">Institutional Signals</div>
+            {data.institutionalSignals.map((s, i) => <BriefingSection key={i} item={s} />)}
+          </>
+        )}
+        {data.watchlist?.length > 0 && (
+          <div className="briefing-watchlist">
+            <div className="briefing-subsection-label">Watch in Next 24-72h</div>
+            {data.watchlist.map((w, i) => (
+              <div key={i} className="briefing-watch-item">
+                <span className="briefing-watch-num">{i + 1}</span>
+                <span>{w}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

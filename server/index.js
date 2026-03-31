@@ -536,7 +536,7 @@ app.get('/api/market-briefing', async (req, res) => {
       ? `SPY: $${spy.price?.toFixed(2)} (${spy.changePct?.toFixed(2)}%), VIX: ${vix.price?.toFixed(2)}, Score: ${marketData?.scored?.marketQuality}%`
       : '';
 
-    const prompt = `You are a sharp market analyst writing a concise but in-depth daily market briefing for active investors. Write in flowing prose — no bullet points, no headers. Your tone is direct, informed, and treats the reader as an intelligent adult.
+    const prompt = `You are an elite market analyst writing a structured daily briefing for serious active investors. Be specific — use real names, quotes (if in headlines), numbers, and sources. Your tone is direct, unbiased, and treats the reader as an intelligent adult who wants to know what it means for their money.
 
 CURRENT MARKET SNAPSHOT:
 ${marketSnap || 'Market data unavailable'}
@@ -544,25 +544,40 @@ ${marketSnap || 'Market data unavailable'}
 CURRENT NEWS HEADLINES (Yahoo Finance + Finviz):
 ${headlines || 'No headlines available'}
 
-Write a briefing of exactly 3 paragraphs:
-
-Paragraph 1 — What is moving markets RIGHT NOW: Lead with the most important story of the day. Cover the dominant macro force (tariffs, geopolitics like Iran/Middle East tensions, Fed signals, or economic data). Be specific — name countries, people, policy details if in the headlines.
-
-Paragraph 2 — Under the hood: Discuss what is happening beneath the surface — sector rotation, credit market behavior, risk-off or risk-on positioning, institutional moves. Connect the headlines to actual market mechanics.
-
-Paragraph 3 — What to watch: 2-3 specific things investors should be watching in the next 24-72 hours — upcoming data releases, geopolitical flashpoints, technical levels, or Fed speakers. Practical and actionable.
-
 Respond with ONLY valid JSON (no markdown, no code blocks):
 {
-  "paragraph1": "...",
-  "paragraph2": "...",
-  "paragraph3": "...",
-  "topTheme": "3-6 word theme label for today (e.g. 'Tariff Shock & Oil Risk')"
-}`;
+  "topTheme": "5-8 word label capturing today's dominant market theme (e.g. 'Iran War Risk & Fed Pivot Speculation')",
+  "topEvent": {
+    "title": "Descriptive title — e.g. 'Powell at Harvard — the single most important event'",
+    "body": "3-5 sentences. Lead with who said/did what. Include direct quotes if available. Name the source. Include specific numbers — rate levels, price moves, percentages. Be precise.",
+    "implication": "2-3 sentences. Start with 'Critical implication:'. Tell investors exactly what this means for markets — which assets are affected, which direction, what to watch for next. Specific and actionable."
+  },
+  "developments": [
+    {
+      "title": "Short descriptive title for this development",
+      "body": "2-4 sentences covering the key facts, quotes, and numbers. Name the source.",
+      "implication": "1-2 sentences on what this means for investors or specific assets."
+    }
+  ],
+  "institutionalSignals": [
+    {
+      "title": "Firm name + what they did (e.g. 'Morgan Stanley: Major Downgrade of Global Equities')",
+      "body": "2-3 sentences. What did they do? What did they say? Quote them if possible.",
+      "implication": "1-2 sentences. This is a huge signal — explain why it matters."
+    }
+  ],
+  "watchlist": ["Specific thing to watch #1 in next 24-72h", "Specific thing to watch #2", "Specific thing to watch #3"]
+}
+
+Rules:
+- Only include developments that are actually in the headlines. Do not fabricate.
+- developments array: 2-4 items max covering the next most important stories
+- institutionalSignals array: 0-3 items — only include if major banks/funds made calls visible in the headlines. Empty array if none.
+- watchlist: exactly 3 specific, actionable things to monitor`;
 
     const message = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1000,
+      max_tokens: 1400,
       messages: [{ role: 'user', content: prompt }]
     });
 

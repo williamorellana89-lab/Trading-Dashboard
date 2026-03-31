@@ -1245,6 +1245,76 @@ body {
   color: var(--text-muted);
   margin-bottom: 8px;
 }
+.briefing-section {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border);
+}
+.briefing-section:last-child { border-bottom: none; }
+.briefing-section-top {
+  border-left: 3px solid var(--amber);
+  padding-left: 14px;
+  margin-left: -14px;
+}
+.briefing-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+.briefing-section-top .briefing-section-title {
+  color: var(--amber);
+}
+.briefing-section-body {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.75;
+  margin: 0 0 10px 0;
+}
+.briefing-implication {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border-left: 3px solid var(--blue);
+  padding: 8px 12px;
+  border-radius: 0 4px 4px 0;
+  line-height: 1.6;
+}
+.briefing-subsection-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  padding: 14px 0 4px 0;
+}
+.briefing-watchlist {
+  padding-top: 4px;
+}
+.briefing-watch-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 6px 0;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.briefing-watch-num {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--blue);
+  background: rgba(59,130,246,0.1);
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
 
 /* ── Economic Essay Format ── */
 .eco-essay {
