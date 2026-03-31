@@ -472,6 +472,40 @@ export async function fetchMarketNews() {
   }
 }
 
+export async function fetchYahooNews() {
+  try {
+    // Yahoo Finance search API — returns news for major market queries
+    const queries = ['stock market', 'federal reserve', 'economy'];
+    const results = await Promise.all(queries.map(async q => {
+      try {
+        const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&newsCount=8&enableFuzzyQuery=false&enableCb=false`;
+        const r = await fetch(url, { headers: HEADERS });
+        if (!r.ok) return [];
+        const json = await r.json();
+        return (json?.news || []).map(n => ({
+          headline: n.title,
+          url: n.link || '',
+          source: n.publisher || '',
+          time: n.providerPublishTime ? new Date(n.providerPublishTime * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''
+        }));
+      } catch { return []; }
+    }));
+
+    const seen = new Set();
+    const merged = [];
+    for (const item of results.flat()) {
+      if (item.headline && !seen.has(item.headline)) {
+        seen.add(item.headline);
+        merged.push(item);
+      }
+    }
+    return merged.slice(0, 20);
+  } catch (e) {
+    console.warn('Yahoo news error:', e.message);
+    return [];
+  }
+}
+
 export { fetchChart, fetchDailyQuote, calcRSI, calcSMA, fetchScreener, fetchTrending, fetchQuoteSummary };
 
 export async function fetchAllMarketData() {

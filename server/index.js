@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { fetchAllMarketData, fetchChart, fetchDailyQuote, calcRSI, calcSMA, fetchScreener, fetchTrending, fetchQuoteSummary, fetchMarketNews } from './data/fetcher.js';
+import { fetchAllMarketData, fetchChart, fetchDailyQuote, calcRSI, calcSMA, fetchScreener, fetchTrending, fetchQuoteSummary, fetchMarketNews, fetchYahooNews } from './data/fetcher.js';
 import Anthropic from '@anthropic-ai/sdk';
 import { fetchFredData } from './data/fred.js';
 import { computeScores } from './scoring/engine.js';
@@ -34,6 +34,7 @@ let chartCache = {};    // per-symbol+range chart cache
 let analysisCache = {}; // per-symbol AI analysis cache
 let marketNewsCache = { data: null, timestamp: 0 };
 let macroReportCache = { data: null, timestamp: 0 };
+let marketBriefingCache = { data: null, timestamp: 0 };
 const MARKET_CACHE_TTL = 30_000;
 const FRED_CACHE_TTL = 300_000; // 5 min — FRED data updates daily, not intraday
 const SCREENER_CACHE_TTL = 60_000; // 1 min — screener data changes frequently
@@ -43,6 +44,7 @@ const CHART_CACHE_TTL = 60_000;
 const ANALYSIS_CACHE_TTL = 4 * 60 * 60 * 1000;    // 4 hours
 const MARKET_NEWS_CACHE_TTL = 5 * 60 * 1000;      // 5 minutes
 const MACRO_REPORT_CACHE_TTL = 30 * 60 * 1000; // 30 minutes — refresh to catch changing news
+const MARKET_BRIEFING_CACHE_TTL = 20 * 60 * 1000; // 20 minutes
 
 const anthropic = process.env.ANTHROPIC_API_KEY
   ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -495,6 +497,83 @@ Return exactly this JSON:
   } catch (err) {
     console.error('Macro report error:', err.message);
     res.status(500).json({ error: 'Macro report failed', details: err.message });
+  }
+});
+
+app.get('/api/market-briefing', async (req, res) => {
+  if (!anthropic) {
+    return res.status(503).json({ error: 'ANTHROPIC_API_KEY not set' });
+  }
+
+  const now = Date.now();
+  if (marketBriefingCache.data && (now - marketBriefingCache.timestamp) < MARKET_BRIEFING_CACHE_TTL) {
+    return res.json(marketBriefingCache.data);
+  }
+
+  try {
+    const [finvizNews, yahooNews, marketData] = await Promise.all([
+      fetchMarketNews().catch(() => []),
+      fetchYahooNews().catch(() => []),
+      getMarketData().catch(() => null)
+    ]);
+
+    // Merge and deduplicate headlines from both sources
+    const seen = new Set();
+    const allNews = [];
+    for (const item of [...yahooNews, ...finvizNews]) {
+      if (item.headline && !seen.has(item.headline)) {
+        seen.add(item.headline);
+        allNews.push(item);
+      }
+    }
+
+    const headlines = allNews.slice(0, 25).map(n => `- ${n.headline}${n.source ? ` (${n.source})` : ''}`).join('\n');
+
+    // Include key market snapshot
+    const spy = marketData?.raw?.spy;
+    const vix = marketData?.raw?.vix;
+    const marketSnap = spy && vix
+      ? `SPY: $${spy.price?.toFixed(2)} (${spy.changePct?.toFixed(2)}%), VIX: ${vix.price?.toFixed(2)}, Score: ${marketData?.scored?.marketQuality}%`
+      : '';
+
+    const prompt = `You are a sharp market analyst writing a concise but in-depth daily market briefing for active investors. Write in flowing prose — no bullet points, no headers. Your tone is direct, informed, and treats the reader as an intelligent adult.
+
+CURRENT MARKET SNAPSHOT:
+${marketSnap || 'Market data unavailable'}
+
+CURRENT NEWS HEADLINES (Yahoo Finance + Finviz):
+${headlines || 'No headlines available'}
+
+Write a briefing of exactly 3 paragraphs:
+
+Paragraph 1 — What is moving markets RIGHT NOW: Lead with the most important story of the day. Cover the dominant macro force (tariffs, geopolitics like Iran/Middle East tensions, Fed signals, or economic data). Be specific — name countries, people, policy details if in the headlines.
+
+Paragraph 2 — Under the hood: Discuss what is happening beneath the surface — sector rotation, credit market behavior, risk-off or risk-on positioning, institutional moves. Connect the headlines to actual market mechanics.
+
+Paragraph 3 — What to watch: 2-3 specific things investors should be watching in the next 24-72 hours — upcoming data releases, geopolitical flashpoints, technical levels, or Fed speakers. Practical and actionable.
+
+Respond with ONLY valid JSON (no markdown, no code blocks):
+{
+  "paragraph1": "...",
+  "paragraph2": "...",
+  "paragraph3": "...",
+  "topTheme": "3-6 word theme label for today (e.g. 'Tariff Shock & Oil Risk')"
+}`;
+
+    const message = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1000,
+      messages: [{ role: 'user', content: prompt }]
+    });
+
+    const text = message.content[0]?.text || '{}';
+    const briefing = JSON.parse(text);
+    const data = { ...briefing, headlines: allNews.slice(0, 15), updatedAt: new Date().toISOString() };
+    marketBriefingCache = { data, timestamp: now };
+    res.json(data);
+  } catch (err) {
+    console.error('Market briefing error:', err.message);
+    res.status(500).json({ error: 'Market briefing failed', details: err.message });
   }
 });
 

@@ -1183,6 +1183,69 @@ body {
   margin: 0;
 }
 
+/* ── Market Briefing ── */
+.market-briefing {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.briefing-loading {
+  padding: 20px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.briefing-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-primary);
+}
+.briefing-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--text-muted);
+}
+.briefing-theme {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--amber);
+  flex: 1;
+}
+.briefing-time {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.briefing-body {
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.briefing-para {
+  font-size: 13.5px;
+  color: var(--text-secondary);
+  line-height: 1.8;
+  margin: 0;
+}
+.briefing-sources {
+  border-top: 1px solid var(--border);
+  padding: 12px 18px;
+}
+.briefing-sources-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
 /* ── Economic Essay Format ── */
 .eco-essay {
   display: flex;
