@@ -1187,26 +1187,31 @@ function MarketBriefing() {
 
   if (loading) return <div className="briefing-loading">Loading market briefing...</div>;
 
-  // Fallback: no AI, just show headlines
+  // Fallback: no AI key — show news in eco-section cards
   if (!data) {
     if (!fallbackNews.length) return null;
+    // Split into chunks of ~5 headlines per card
+    const chunks = [fallbackNews.slice(0, 5), fallbackNews.slice(5, 10), fallbackNews.slice(10)].filter(c => c.length);
+    const labels = ['Top Stories', 'More Headlines', 'Also Watching'];
     return (
-      <div className="market-briefing">
-        <div className="briefing-header">
-          <span className="briefing-title">Market Headlines</span>
-          <span className="briefing-time">Live</span>
-        </div>
-        <div className="briefing-sources" style={{ borderTop: 'none' }}>
-          {fallbackNews.map((n, i) => (
-            <div key={i} className="news-item">
-              <a className="news-headline" href={n.url} target="_blank" rel="noopener noreferrer">{n.headline}</a>
-              <span className="news-meta">
-                <span className="news-source">{n.source}</span>
-                {n.time && <span className="news-time">{n.time}</span>}
-              </span>
+      <div className="eco-essay">
+        <div className="detail-section-title">Market Headlines <span style={{fontSize:10,fontWeight:400,color:'var(--text-muted)',marginLeft:8}}>Live</span></div>
+        {chunks.map((chunk, ci) => (
+          <div key={ci} className="eco-section">
+            <div className="eco-section-title">{labels[ci]}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {chunk.map((n, i) => (
+                <div key={i} className="news-item">
+                  <a className="news-headline" href={n.url} target="_blank" rel="noopener noreferrer">{n.headline}</a>
+                  <span className="news-meta">
+                    <span className="news-source">{n.source}</span>
+                    {n.time && <span className="news-time">{n.time}</span>}
+                  </span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </div>
+        ))}
       </div>
     );
   }
