@@ -1784,9 +1784,6 @@ function App() {
 
           {/* AI Market Briefing */}
           <MarketBriefing />
-
-          {/* Market News */}
-          <MarketNews />
         </div>
       ) : null}
     </>
