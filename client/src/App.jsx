@@ -1048,6 +1048,11 @@ function MarketNews() {
 }
 
 function EconomicOutlook({ fred }) {
+  const [news, setNews] = useState([]);
+  useEffect(() => {
+    fetch(`${API_BASE}/market-news`).then(r => r.ok ? r.json() : []).then(d => setNews(Array.isArray(d) ? d.slice(0, 8) : [])).catch(() => {});
+  }, []);
+
   if (!fred?.series || !fred?.derived) return null;
 
   const { yieldCurve, creditConditions, fedPolicy } = fred.derived;
@@ -1162,6 +1167,19 @@ function EconomicOutlook({ fred }) {
           <p className="eco-section-text">{s.text}</p>
         </div>
       ))}
+      {news.length > 0 && (
+        <div className="eco-section">
+          <div className="eco-section-title">What Markets Are Watching</div>
+          <div className="news-panel" style={{ gap: 6, display: 'flex', flexDirection: 'column' }}>
+            {news.map((n, i) => (
+              <div key={i} className="news-item">
+                <a className="news-headline" href={n.url} target="_blank" rel="noopener noreferrer">{n.headline}</a>
+                <span className="news-meta"><span className="news-source">{n.source}</span>{n.time && <span className="news-time">{n.time}</span>}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

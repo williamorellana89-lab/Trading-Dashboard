@@ -42,7 +42,7 @@ const DETAIL_CACHE_TTL = 30_000;
 const CHART_CACHE_TTL = 60_000;
 const ANALYSIS_CACHE_TTL = 4 * 60 * 60 * 1000;    // 4 hours
 const MARKET_NEWS_CACHE_TTL = 5 * 60 * 1000;      // 5 minutes
-const MACRO_REPORT_CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours
+const MACRO_REPORT_CACHE_TTL = 30 * 60 * 1000; // 30 minutes — refresh to catch changing news
 
 const anthropic = process.env.ANTHROPIC_API_KEY
   ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -430,7 +430,10 @@ app.get('/api/macro-report', async (req, res) => {
   }
 
   try {
-    const fred = await getFredData();
+    const [fred, newsItems] = await Promise.all([
+      getFredData(),
+      fetchMarketNews().catch(() => [])
+    ]);
     if (!fred) return res.status(503).json({ error: 'FRED data unavailable' });
 
     const { derived, series } = fred;
@@ -447,35 +450,41 @@ app.get('/api/macro-report', async (req, res) => {
       lines.push(`${s.name}: ${s.value}${s.unit || ''} (${s.direction || ''} — ${s.classification?.label || ''})`);
     }
 
-    const prompt = `You are a clear, insightful financial analyst writing a macro economic briefing for everyday investors — people who are smart but don't follow markets every day. Avoid jargon. Explain what the data MEANS for their money, not just what the numbers are. Respond ONLY with valid JSON (no markdown, no code blocks).
+    // Include top market news headlines so Claude can factor in current events
+    const newsLines = newsItems.slice(0, 15).map(n => `- ${n.headline}${n.source ? ` (${n.source})` : ''}`).join('\n');
+
+    const prompt = `You are a clear, insightful financial analyst writing a macro economic briefing for everyday investors — people who are smart but don't follow markets every day. Avoid jargon. Explain what the data MEANS for their money, not just what the numbers are. Factor in BOTH the quantitative data AND the current news headlines. Respond ONLY with valid JSON (no markdown, no code blocks).
 
 CURRENT US ECONOMIC DATA:
 ${lines.join('\n')}
 
+CURRENT MARKET NEWS HEADLINES (factor these into your analysis — geopolitics, tariffs, Fed signals, credit stress, etc.):
+${newsLines || 'No headlines available'}
+
 Return exactly this JSON:
 {
   "sentiment": "Bearish|Cautious|Neutral|Optimistic|Bullish",
-  "sentimentReason": "One sentence explaining why you chose that sentiment",
-  "overview": "3-4 sentences: Where is the US economy right now? Is it growing, slowing, or in trouble? Write this for someone who hasn't checked the news in a month.",
-  "whatsDriving": "3-4 sentences: What are the 2-3 biggest forces shaping markets and the economy right now? Be specific — name the actual dynamics at play.",
+  "sentimentReason": "One sentence explaining why you chose that sentiment, referencing both data and current events",
+  "overview": "3-4 sentences: Where is the US economy right now? Factor in current events like geopolitical tensions, trade policy, or credit market stress if relevant. Write for someone who hasn't checked the news in a month.",
+  "whatsDriving": "3-4 sentences: What are the 2-3 biggest forces shaping markets and the economy right now? Be specific — name the actual dynamics, including any geopolitical or policy risks visible in the headlines.",
   "inflationAndRates": "3-4 sentences: What is happening with prices and interest rates? Is inflation under control? What is the Federal Reserve doing and what does it mean for regular people — mortgages, savings, borrowing?",
   "laborMarket": "2-3 sentences: How is the jobs market? Are companies hiring or cutting? What does this mean for consumers and the economy?",
-  "creditAndLiquidity": "2-3 sentences: Are banks and investors lending freely or tightening up? Is there financial stress in the system? Plain English.",
+  "creditAndLiquidity": "3-4 sentences: Are banks and investors lending freely or tightening up? Is there financial stress in the system — widening spreads, credit tightening, or flight to safety? Reference current credit market conditions. Plain English.",
   "risks": [
-    "Risk #1: specific risk explained in plain English — why it matters and what could trigger it",
-    "Risk #2",
-    "Risk #3"
+    "Risk #1: specific risk explained in plain English — include geopolitical risks (Iran, tariffs, trade war) if relevant based on current headlines",
+    "Risk #2: credit or financial system risk",
+    "Risk #3: domestic economic risk"
   ],
   "opportunities": [
     "Opportunity #1: where the current macro environment may actually favor investors — be specific",
     "Opportunity #2"
   ],
-  "bottomLine": "2-3 sentences: If you had to tell a friend in plain English what this macro environment means for investing right now — what would you say? Practical, honest, no fluff."
+  "bottomLine": "2-3 sentences: If you had to tell a friend in plain English what this macro environment means for investing right now — what would you say? Practical, honest, no fluff. Mention any specific current events that investors should be watching."
 }`;
 
     const message = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1200,
+      max_tokens: 1600,
       messages: [{ role: 'user', content: prompt }]
     });
 
