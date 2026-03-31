@@ -501,11 +501,47 @@ Return exactly this JSON:
   }
 });
 
-app.get('/api/market-briefing', async (req, res) => {
-  if (!anthropic) {
-    return res.status(503).json({ error: 'ANTHROPIC_API_KEY not set' });
-  }
+function templateBriefing(allNews) {
+  const match = (h, words) => words.some(w => h.toLowerCase().includes(w));
+  const themes = [
+    { key: 'fed', title: 'Federal Reserve & Rates', keywords: ['fed', 'powell', 'rate', 'fomc', 'inflation', 'cpi', 'treasury', 'yield', 'bond', 'monetary'] },
+    { key: 'geo', title: 'Geopolitics & Oil', keywords: ['iran', 'war', 'oil', 'trump', 'tariff', 'trade', 'china', 'sanction', 'ukraine', 'opec', 'ceasefire', 'kharg'] },
+    { key: 'equity', title: 'Markets & Equities', keywords: ['stock', 'nasdaq', 'spy', 'qqq', 's&p', 'market', 'rally', 'correction', 'earnings', 'sector', 'bull', 'bear'] },
+    { key: 'macro', title: 'Economy & Credit', keywords: ['gdp', 'jobs', 'unemployment', 'recession', 'credit', 'bank', 'debt', 'consumer', 'housing', 'mortgage'] },
+  ];
 
+  const grouped = themes.map(t => ({
+    ...t, items: allNews.filter(n => match(n.headline, t.keywords))
+  })).filter(t => t.items.length > 0);
+
+  const seen = new Set(grouped.flatMap(g => g.items.map(i => i.headline)));
+  const rest = allNews.filter(n => !seen.has(n.headline));
+  if (rest.length) grouped.push({ key: 'other', title: 'Also in the News', items: rest });
+
+  const topDev = grouped.slice(1).map(g => ({
+    title: g.title,
+    body: g.items.slice(0, 3).map(n => `"${n.headline}"${n.source ? ` (${n.source})` : ''}`).join(' • '),
+    implication: null
+  }));
+
+  const top = grouped[0];
+  return {
+    topTheme: grouped.map(g => g.title).slice(0, 2).join(' & '),
+    topEvent: top ? {
+      title: top.title,
+      body: top.items.slice(0, 4).map(n => `${n.headline}${n.source ? ` — ${n.source}` : ''}.`).join(' '),
+      implication: null
+    } : null,
+    developments: topDev.slice(0, 3),
+    institutionalSignals: [],
+    watchlist: ['Monitor Fed speakers for rate guidance', 'Watch oil prices and geopolitical headlines', 'Track S&P 500 support/resistance levels'],
+    headlines: allNews.slice(0, 15),
+    updatedAt: new Date().toISOString(),
+    isTemplate: true
+  };
+}
+
+app.get('/api/market-briefing', async (req, res) => {
   const now = Date.now();
   if (marketBriefingCache.data && (now - marketBriefingCache.timestamp) < MARKET_BRIEFING_CACHE_TTL) {
     return res.json(marketBriefingCache.data);
@@ -526,6 +562,13 @@ app.get('/api/market-briefing', async (req, res) => {
         seen.add(item.headline);
         allNews.push(item);
       }
+    }
+
+    // If no AI, return template-grouped briefing immediately
+    if (!anthropic) {
+      const data = templateBriefing(allNews);
+      marketBriefingCache = { data, timestamp: now };
+      return res.json(data);
     }
 
     const headlines = allNews.slice(0, 25).map(n => `- ${n.headline}${n.source ? ` (${n.source})` : ''}`).join('\n');

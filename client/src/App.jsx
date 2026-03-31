@@ -1169,52 +1169,17 @@ function EconomicOutlook({ fred }) {
 
 function MarketBriefing() {
   const [data, setData] = useState(null);
-  const [fallbackNews, setFallbackNews] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetch(`${API_BASE}/market-briefing`)
       .then(r => r.ok ? r.json() : Promise.reject(r))
       .then(d => { setData(d); setLoading(false); })
-      .catch(() => {
-        // No API key — fall back to raw news headlines
-        fetch(`${API_BASE}/market-news`)
-          .then(r => r.ok ? r.json() : [])
-          .then(news => { setFallbackNews(Array.isArray(news) ? news : []); setLoading(false); })
-          .catch(() => setLoading(false));
-      });
+      .catch(() => setLoading(false));
   }, []);
 
   if (loading) return <div className="briefing-loading">Loading market briefing...</div>;
-
-  // Fallback: no AI key — show news in eco-section cards
-  if (!data) {
-    if (!fallbackNews.length) return null;
-    // Split into chunks of ~5 headlines per card
-    const chunks = [fallbackNews.slice(0, 5), fallbackNews.slice(5, 10), fallbackNews.slice(10)].filter(c => c.length);
-    const labels = ['Top Stories', 'More Headlines', 'Also Watching'];
-    return (
-      <div className="eco-essay">
-        <div className="detail-section-title">Market Headlines <span style={{fontSize:10,fontWeight:400,color:'var(--text-muted)',marginLeft:8}}>Live</span></div>
-        {chunks.map((chunk, ci) => (
-          <div key={ci} className="eco-section">
-            <div className="eco-section-title">{labels[ci]}</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {chunk.map((n, i) => (
-                <div key={i} className="news-item">
-                  <a className="news-headline" href={n.url} target="_blank" rel="noopener noreferrer">{n.headline}</a>
-                  <span className="news-meta">
-                    <span className="news-source">{n.source}</span>
-                    {n.time && <span className="news-time">{n.time}</span>}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  }
+  if (!data) return null;
 
   const BriefingCard = ({ item, isTop }) => (
     <div className={`eco-section${isTop ? ' briefing-top-card' : ''}`}>
