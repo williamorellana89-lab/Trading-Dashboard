@@ -1169,18 +1169,47 @@ function EconomicOutlook({ fred }) {
 
 function MarketBriefing() {
   const [data, setData] = useState(null);
+  const [fallbackNews, setFallbackNews] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
 
   useEffect(() => {
     fetch(`${API_BASE}/market-briefing`)
       .then(r => r.ok ? r.json() : Promise.reject(r))
       .then(d => { setData(d); setLoading(false); })
-      .catch(() => { setError(true); setLoading(false); });
+      .catch(() => {
+        // No API key — fall back to raw news headlines
+        fetch(`${API_BASE}/market-news`)
+          .then(r => r.ok ? r.json() : [])
+          .then(news => { setFallbackNews(Array.isArray(news) ? news : []); setLoading(false); })
+          .catch(() => setLoading(false));
+      });
   }, []);
 
   if (loading) return <div className="briefing-loading">Loading market briefing...</div>;
-  if (error || !data) return null;
+
+  // Fallback: no AI, just show headlines
+  if (!data) {
+    if (!fallbackNews.length) return null;
+    return (
+      <div className="market-briefing">
+        <div className="briefing-header">
+          <span className="briefing-title">Market Headlines</span>
+          <span className="briefing-time">Live</span>
+        </div>
+        <div className="briefing-sources" style={{ borderTop: 'none' }}>
+          {fallbackNews.map((n, i) => (
+            <div key={i} className="news-item">
+              <a className="news-headline" href={n.url} target="_blank" rel="noopener noreferrer">{n.headline}</a>
+              <span className="news-meta">
+                <span className="news-source">{n.source}</span>
+                {n.time && <span className="news-time">{n.time}</span>}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="market-briefing">
