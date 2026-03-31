@@ -1211,30 +1211,50 @@ function MarketBriefing() {
     );
   }
 
-  const BriefingSection = ({ item, isTop }) => (
-    <div className={`briefing-section${isTop ? ' briefing-section-top' : ''}`}>
-      <div className="briefing-section-title">{item.title}</div>
-      <p className="briefing-section-body">{item.body}</p>
+  const BriefingCard = ({ item, isTop }) => (
+    <div className={`eco-section${isTop ? ' briefing-top-card' : ''}`}>
+      <div className="eco-section-title">{item.title}</div>
+      <p className="eco-section-text">{item.body}</p>
       {item.implication && (
-        <div className="briefing-implication">
-          {item.implication}
-        </div>
+        <div className="briefing-implication">{item.implication}</div>
       )}
     </div>
   );
 
   return (
-    <div className="market-briefing">
-      <div className="briefing-header">
-        <span className="briefing-title">Market Briefing</span>
+    <div className="eco-essay">
+      <div className="detail-section-title" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        Market Briefing
         {data.topTheme && <span className="briefing-theme">{data.topTheme}</span>}
-        {data.updatedAt && <span className="briefing-time">{new Date(data.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
+        {data.updatedAt && <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 400, marginLeft: 'auto' }}>{new Date(data.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
       </div>
 
-      {/* Headlines strip */}
+      {data.topEvent && <BriefingCard item={data.topEvent} isTop />}
+      {data.developments?.map((d, i) => <BriefingCard key={i} item={d} />)}
+
+      {data.institutionalSignals?.length > 0 && (
+        <>
+          <div className="eco-section-title" style={{ padding: '4px 0', color: 'var(--text-muted)' }}>Institutional Signals</div>
+          {data.institutionalSignals.map((s, i) => <BriefingCard key={i} item={s} />)}
+        </>
+      )}
+
+      {data.watchlist?.length > 0 && (
+        <div className="eco-section">
+          <div className="eco-section-title">Watch in Next 24–72h</div>
+          {data.watchlist.map((w, i) => (
+            <div key={i} className="briefing-watch-item">
+              <span className="briefing-watch-num">{i + 1}</span>
+              <span className="eco-section-text" style={{ margin: 0 }}>{w}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Live headlines at the bottom */}
       {data.headlines?.length > 0 && (
-        <div className="briefing-sources" style={{ borderBottom: '1px solid var(--border)', borderTop: 'none' }}>
-          <div className="briefing-sources-label">Live Headlines</div>
+        <div className="eco-section">
+          <div className="eco-section-title">Live Headlines</div>
           {data.headlines.map((n, i) => (
             <div key={i} className="news-item">
               <a className="news-headline" href={n.url} target="_blank" rel="noopener noreferrer">{n.headline}</a>
@@ -1246,29 +1266,6 @@ function MarketBriefing() {
           ))}
         </div>
       )}
-
-      {/* Structured analysis */}
-      <div className="briefing-body">
-        {data.topEvent && <BriefingSection item={data.topEvent} isTop />}
-        {data.developments?.map((d, i) => <BriefingSection key={i} item={d} />)}
-        {data.institutionalSignals?.length > 0 && (
-          <>
-            <div className="briefing-subsection-label">Institutional Signals</div>
-            {data.institutionalSignals.map((s, i) => <BriefingSection key={i} item={s} />)}
-          </>
-        )}
-        {data.watchlist?.length > 0 && (
-          <div className="briefing-watchlist">
-            <div className="briefing-subsection-label">Watch in Next 24-72h</div>
-            {data.watchlist.map((w, i) => (
-              <div key={i} className="briefing-watch-item">
-                <span className="briefing-watch-num">{i + 1}</span>
-                <span>{w}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
     </div>
   );
 }
