@@ -1183,6 +1183,48 @@ body {
   margin: 0;
 }
 
+/* ── Economic Essay Format ── */
+.eco-essay {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.eco-section {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 18px 20px;
+}
+.eco-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--text-muted);
+  margin: 0 0 10px 0;
+}
+.eco-section-text {
+  font-size: 13.5px;
+  color: var(--text-secondary);
+  line-height: 1.75;
+  margin: 0;
+}
+.eco-highlight {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.eco-section:last-child {
+  border-left: 3px solid var(--amber);
+  background: var(--bg-primary);
+}
+.eco-section:last-child .eco-section-title {
+  color: var(--amber);
+}
+.eco-section:last-child .eco-section-text {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
 /* Colors */
 .c-green { color: var(--green); }
 .c-red { color: var(--red); }

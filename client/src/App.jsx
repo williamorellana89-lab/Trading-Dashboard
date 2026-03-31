@@ -1048,41 +1048,120 @@ function MarketNews() {
 }
 
 function EconomicOutlook({ fred }) {
-  if (!fred?.series) return null;
+  if (!fred?.series || !fred?.derived) return null;
 
-  const bullPoints = [];
-  const bearPoints = [];
-  const { yieldCurve, creditConditions, fedPolicy } = fred.derived || {};
+  const { yieldCurve, creditConditions, fedPolicy } = fred.derived;
+  const { series } = fred;
 
-  if (yieldCurve?.inverted) bearPoints.push('Yield curve inverted — historical recession signal');
-  else if (yieldCurve?.spread10y2y != null) bullPoints.push(`Yield curve normal (10Y-2Y: ${yieldCurve.spread10y2y.toFixed(2)}%)`);
+  const fedRate = fedPolicy?.rate?.toFixed(2);
+  const fedStance = fedPolicy?.stance?.replace(/_/g, ' ') || 'unknown';
+  const ycSpread = yieldCurve?.spread10y2y?.toFixed(2);
+  const ycInverted = yieldCurve?.inverted;
+  const hySpread = creditConditions?.hySpread?.toFixed(2);
+  const creditStressed = creditConditions?.stressed;
+  const cpiYoY = series?.CPIAUCSL?.yoyChange?.toFixed(1);
+  const cpiDir = series?.CPIAUCSL?.direction || 'changing';
+  const unemployment = series?.UNRATE?.value;
+  const initialClaims = series?.IC4WSA?.value || series?.ICSA?.value;
+  const mortgage30 = series?.MORTGAGE30US?.value;
 
-  if (creditConditions?.stressed) bearPoints.push(`Credit spreads widening — HY spread ${creditConditions.hySpread?.toFixed(2)}%`);
-  else if (creditConditions?.hySpread != null) bullPoints.push(`Credit conditions stable — HY spread ${creditConditions.hySpread?.toFixed(2)}%`);
+  const sections = [];
 
-  if (fedPolicy?.stance === 'accommodative') bullPoints.push('Fed policy accommodative — supportive for risk assets');
-  else if (fedPolicy?.stance === 'restrictive' || fedPolicy?.stance === 'very_restrictive') bearPoints.push(`Fed policy restrictive at ${fedPolicy.rate?.toFixed(2)}% — headwind for growth`);
+  // ── Interest Rates & Fed ──
+  if (fedRate || ycSpread) {
+    let text = '';
+    if (fedRate) {
+      text += `The Federal Reserve is currently holding its benchmark rate at ${fedRate}%, a ${fedStance} monetary policy stance. `;
+      if (['restrictive', 'very restrictive'].includes(fedStance)) {
+        text += `Rates at this level make borrowing more expensive for businesses and consumers — mortgages, auto loans, and corporate debt all carry higher costs, which tends to slow spending and investment over time. `;
+      } else if (fedStance === 'accommodative') {
+        text += `At this level, the Fed is actively supporting the economy — cheap borrowing encourages businesses to invest and consumers to spend. `;
+      } else {
+        text += `This neutral stance means the Fed is neither pressing the gas nor the brake on economic activity. `;
+      }
+    }
+    if (mortgage30) text += `The 30-year mortgage rate sits at ${mortgage30}%, making home affordability a real challenge for buyers. `;
+    if (ycSpread) {
+      text += `The yield curve — the spread between 10-year and 2-year Treasury yields — stands at ${ycSpread}%. `;
+      text += ycInverted
+        ? `An inverted yield curve has preceded every US recession in modern history. While the timing is unpredictable and the signal can persist for 12–24 months before any slowdown materializes, it is a warning sign that markets are pricing in future economic weakness.`
+        : `A positive spread is the normal, healthy configuration — long-term bonds yield more than short-term ones, reflecting market confidence in future growth rather than fear of a downturn.`;
+    }
+    sections.push({ title: 'Interest Rates & Federal Reserve', text });
+  }
 
-  Object.values(fred.series).forEach(s => {
-    if (!s.value) return;
-    const line = `${s.name}: ${s.value}${s.unit || ''}`;
-    if (s.classification?.color === 'green') bullPoints.push(line);
-    else if (s.classification?.color === 'red') bearPoints.push(line);
-  });
+  // ── Inflation ──
+  if (cpiYoY) {
+    const cpiNum = parseFloat(cpiYoY);
+    let text = `Consumer prices are ${cpiDir} at ${cpiYoY}% year-over-year. `;
+    if (cpiNum > 5) {
+      text += `This is well above the Fed's 2% target and represents a significant burden on everyday Americans — groceries, rent, and energy are all meaningfully more expensive than they were a year ago. At this level, the Fed has little room to cut rates, and any hint of re-acceleration in inflation could force further hikes. For investors, high inflation erodes the real value of cash and bonds, and can compress profit margins as companies pay more for inputs.`;
+    } else if (cpiNum > 3) {
+      text += `While inflation has cooled from its recent peak, it remains above the Fed's 2% target. This keeps the central bank in a watchful, cautious mode — unlikely to raise rates further but not yet confident enough to cut. For investors, this is the "last mile" problem: bringing inflation from 3% to 2% has historically been harder than the initial decline. Markets will continue to react strongly to each monthly CPI print.`;
+    } else if (cpiNum > 2) {
+      text += `Inflation is within striking distance of the Fed's 2% target. This is a constructive development — it opens the door for potential rate cuts if the labor market softens, which would be a significant tailwind for stocks and bonds alike. The disinflationary trend, if sustained, removes one of the biggest overhangs that has weighed on markets.`;
+    } else {
+      text += `Inflation is at or below the Fed's 2% target, giving the central bank significant room to cut rates if economic growth falters. This is a supportive backdrop for risk assets, as lower rates reduce the discount rate applied to future earnings and make bonds less competitive relative to stocks.`;
+    }
+    sections.push({ title: 'Inflation', text });
+  }
+
+  // ── Labor Market ──
+  if (unemployment || initialClaims) {
+    let text = '';
+    if (unemployment) {
+      const u = parseFloat(unemployment);
+      text += `The unemployment rate is ${unemployment}%. `;
+      if (u < 4) text += `This is historically low — essentially full employment. A tight labor market means workers have bargaining power, wages are rising, and consumer spending remains supported. The flip side is that wage growth can feed back into inflation, complicating the Fed's job. `;
+      else if (u < 5) text += `This represents a balanced labor market — neither overheating nor alarming. Most people who want to work can find a job, which keeps consumer confidence and spending relatively healthy. `;
+      else text += `This level signals softening in the jobs market. Rising unemployment tends to weigh on consumer confidence and spending, which can create a self-reinforcing slowdown if businesses respond by cutting further. `;
+    }
+    if (initialClaims) {
+      const claims = Math.round(initialClaims / 1000);
+      text += `Weekly jobless claims — the number of Americans filing for unemployment for the first time — are running at ${claims}K. `;
+      text += initialClaims < 220000
+        ? `This is a low number, indicating that layoffs remain contained and the labor market is still healthy.`
+        : initialClaims < 300000
+        ? `This is a moderate level — not alarming, but worth watching for signs of deterioration.`
+        : `This elevated level suggests companies are beginning to cut headcount at a meaningful pace, which could signal broader economic stress ahead.`;
+    }
+    sections.push({ title: 'Labor Market', text });
+  }
+
+  // ── Credit & Liquidity ──
+  if (hySpread) {
+    let text = `High-yield credit spreads measure the extra yield investors demand to lend money to riskier companies versus the US government. Currently at ${hySpread}%, spreads are ${creditConditions?.direction || 'stable'}. `;
+    if (creditStressed) {
+      text += `This elevated level signals genuine financial stress — investors are demanding significantly more compensation for risk, which means borrowing costs for weaker companies are rising sharply. Historically, wide spreads precede an increase in corporate defaults and a tightening of overall credit conditions, which can slow economic activity and weigh on equities. This is a yellow to red flag for the broader market.`;
+    } else {
+      text += `This contained level suggests that credit markets are functioning smoothly and there is no systemic stress in the financial system. When spreads are tight, it reflects investor confidence that companies can service their debts — a healthy signal for economic stability and equity markets. It also means that companies can borrow at reasonable rates to invest and grow.`;
+    }
+    sections.push({ title: 'Credit Markets & Financial Conditions', text });
+  }
+
+  // ── Overall assessment ──
+  const bullScore = [!ycInverted, !creditStressed, unemployment && parseFloat(unemployment) < 4.5, cpiYoY && parseFloat(cpiYoY) < 3.5].filter(Boolean).length;
+  const bearScore = [ycInverted, creditStressed, cpiYoY && parseFloat(cpiYoY) > 4, ['restrictive', 'very restrictive'].includes(fedStance)].filter(Boolean).length;
+
+  let summaryText = '';
+  if (bullScore >= 3 && bearScore <= 1) {
+    summaryText = `Taken together, the current macro backdrop leans constructive. A functioning credit market, stable employment, and improving inflation trajectory provide a reasonable foundation for the economy to continue expanding. This does not mean risk-free — no environment is — but investors do not need to be in full defensive mode. The base case is continued, if uneven, growth with the Fed eventually providing relief on rates as inflation cools further.`;
+  } else if (bearScore >= 3 || (ycInverted && creditStressed)) {
+    summaryText = `On balance, the current macroeconomic picture presents meaningful headwinds. The combination of restrictive monetary policy, sticky inflation, or signs of credit stress creates a challenging environment for risk assets. History suggests that when multiple warning indicators align — yield curve inversion, tightening credit conditions, slowing labor market — investors benefit from raising cash, reducing leverage, and tilting toward defensive positioning until the picture clarifies.`;
+  } else {
+    summaryText = `The current macroeconomic picture is genuinely mixed — some indicators are supportive while others warrant caution. This kind of environment calls for selectivity rather than broad bets. Sectors with pricing power, strong balance sheets, and recurring revenue tend to hold up better when macro uncertainty is elevated. It is not a moment to be either fully aggressive or fully defensive — it is a moment for disciplined, stock-by-stock thinking.`;
+  }
+  sections.push({ title: 'The Bottom Line', text: summaryText, highlight: true });
 
   return (
-    <div className="analysis-section">
-      <div className="detail-section-title">Economic Signals</div>
-      <div className="analysis-grid">
-        <div className="analysis-panel bull">
-          <div className="analysis-panel-title">Bullish Factors</div>
-          {bullPoints.slice(0, 6).map((p, i) => <div key={i} className="catalyst-item bull">+ {p}</div>)}
+    <div className="eco-essay">
+      <div className="detail-section-title">Economic Analysis</div>
+      {sections.map((s, i) => (
+        <div key={i} className={`eco-section${s.highlight ? ' eco-highlight' : ''}`}>
+          <div className="eco-section-title">{s.title}</div>
+          <p className="eco-section-text">{s.text}</p>
         </div>
-        <div className="analysis-panel bear">
-          <div className="analysis-panel-title">Bearish Factors</div>
-          {bearPoints.slice(0, 6).map((p, i) => <div key={i} className="catalyst-item bear">− {p}</div>)}
-        </div>
-      </div>
+      ))}
     </div>
   );
 }
