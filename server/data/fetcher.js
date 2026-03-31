@@ -472,22 +472,45 @@ export async function fetchMarketNews() {
   }
 }
 
+function parseRss(xml) {
+  const items = [];
+  const itemRegex = /<item>([\s\S]*?)<\/item>/g;
+  let m;
+  while ((m = itemRegex.exec(xml)) !== null) {
+    const block = m[1];
+    const title = (/<title><!\[CDATA\[(.*?)\]\]><\/title>/.exec(block) || /<title>(.*?)<\/title>/.exec(block) || [])[1]?.trim();
+    const link = (/<link>(.*?)<\/link>/.exec(block) || [])[1]?.trim();
+    const source = (/<source[^>]*>(.*?)<\/source>/.exec(block) || [])[1]?.trim();
+    const pubDate = (/<pubDate>(.*?)<\/pubDate>/.exec(block) || [])[1]?.trim();
+    if (title) {
+      const d = pubDate ? new Date(pubDate) : null;
+      items.push({
+        headline: title,
+        url: link || '',
+        source: source || 'Yahoo Finance',
+        time: d && !isNaN(d) ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''
+      });
+    }
+  }
+  return items;
+}
+
 export async function fetchYahooNews() {
   try {
-    // Yahoo Finance search API — returns news for major market queries
-    const queries = ['stock market', 'federal reserve', 'economy'];
-    const results = await Promise.all(queries.map(async q => {
+    // Yahoo Finance RSS feeds — real-time, no API key needed
+    const feeds = [
+      'https://feeds.finance.yahoo.com/rss/2.0/headline?s=SPY&region=US&lang=en-US',
+      'https://feeds.finance.yahoo.com/rss/2.0/headline?s=QQQ&region=US&lang=en-US',
+      'https://feeds.finance.yahoo.com/rss/2.0/headline?s=%5EGSPC&region=US&lang=en-US',
+      'https://feeds.finance.yahoo.com/rss/2.0/headline?s=%5ETNX&region=US&lang=en-US',
+    ];
+
+    const results = await Promise.all(feeds.map(async url => {
       try {
-        const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&newsCount=8&enableFuzzyQuery=false&enableCb=false`;
-        const r = await fetch(url, { headers: HEADERS });
+        const r = await fetch(url, { headers: { ...HEADERS, 'Accept': 'application/rss+xml, application/xml, text/xml' } });
         if (!r.ok) return [];
-        const json = await r.json();
-        return (json?.news || []).map(n => ({
-          headline: n.title,
-          url: n.link || '',
-          source: n.publisher || '',
-          time: n.providerPublishTime ? new Date(n.providerPublishTime * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''
-        }));
+        const xml = await r.text();
+        return parseRss(xml);
       } catch { return []; }
     }));
 
@@ -499,7 +522,7 @@ export async function fetchYahooNews() {
         merged.push(item);
       }
     }
-    return merged.slice(0, 20);
+    return merged.slice(0, 25);
   } catch (e) {
     console.warn('Yahoo news error:', e.message);
     return [];

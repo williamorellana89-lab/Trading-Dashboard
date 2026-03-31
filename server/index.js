@@ -45,7 +45,7 @@ const CHART_CACHE_TTL = 60_000;
 const ANALYSIS_CACHE_TTL = 4 * 60 * 60 * 1000;    // 4 hours
 const MARKET_NEWS_CACHE_TTL = 5 * 60 * 1000;      // 5 minutes
 const MACRO_REPORT_CACHE_TTL = 30 * 60 * 1000; // 30 minutes — refresh to catch changing news
-const MARKET_BRIEFING_CACHE_TTL = 20 * 60 * 1000; // 20 minutes
+const MARKET_BRIEFING_CACHE_TTL = 10 * 60 * 1000; // 10 minutes — RSS refreshes frequently
 
 const anthropic = process.env.ANTHROPIC_API_KEY
   ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
