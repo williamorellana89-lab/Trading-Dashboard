@@ -33,14 +33,16 @@ let detailCache = {};   // per-symbol quote detail cache
 let chartCache = {};    // per-symbol+range chart cache
 let analysisCache = {}; // per-symbol AI analysis cache
 let marketNewsCache = { data: null, timestamp: 0 };
+let macroReportCache = { data: null, timestamp: 0 };
 const MARKET_CACHE_TTL = 30_000;
 const FRED_CACHE_TTL = 300_000; // 5 min — FRED data updates daily, not intraday
 const SCREENER_CACHE_TTL = 60_000; // 1 min — screener data changes frequently
 const WATCHLIST_CACHE_TTL = 30_000;
 const DETAIL_CACHE_TTL = 30_000;
 const CHART_CACHE_TTL = 60_000;
-const ANALYSIS_CACHE_TTL = 4 * 60 * 60 * 1000; // 4 hours
-const MARKET_NEWS_CACHE_TTL = 5 * 60 * 1000;   // 5 minutes
+const ANALYSIS_CACHE_TTL = 4 * 60 * 60 * 1000;    // 4 hours
+const MARKET_NEWS_CACHE_TTL = 5 * 60 * 1000;      // 5 minutes
+const MACRO_REPORT_CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours
 
 const anthropic = process.env.ANTHROPIC_API_KEY
   ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -367,7 +369,7 @@ app.get('/api/analysis', async (req, res) => {
       ? Math.round(((detail.price - detail.fiftyTwoWeekLow) / (detail.fiftyTwoWeekHigh - detail.fiftyTwoWeekLow)) * 100)
       : null;
 
-    const prompt = `You are a concise financial analyst. Given this stock data, respond with ONLY valid JSON (no markdown, no explanation):
+    const prompt = `You are a sharp financial analyst writing for an experienced retail investor. Given this stock data, respond with ONLY valid JSON (no markdown, no code blocks).
 
 Symbol: ${symbol}
 Company: ${detail.name}
@@ -379,17 +381,31 @@ P/B: ${detail.priceToBook ?? 'N/A'} | EV/EBITDA: ${detail.enterpriseToEbitda ?? 
 Beta: ${detail.beta ?? 'N/A'} | Dividend Yield: ${detail.dividendYield ? detail.dividendYield + '%' : 'None'}
 52W Range: $${detail.fiftyTwoWeekLow} - $${detail.fiftyTwoWeekHigh} (currently ${pctOf52W ?? '?'}% of range)
 
-Return exactly this JSON structure:
+Return exactly this JSON:
 {
-  "bullCase": "2-3 sentence bull case for this stock",
-  "bearCase": "2-3 sentence bear case for this stock",
-  "bullCatalysts": ["catalyst 1", "catalyst 2", "catalyst 3"],
-  "bearCatalysts": ["risk 1", "risk 2", "risk 3"]
+  "verdict": "Bullish|Neutral|Bearish",
+  "bullCase": "4-5 sentence bull case covering business fundamentals, growth drivers, and valuation",
+  "bearCase": "4-5 sentence bear case covering specific risks, valuation concerns, and competitive threats",
+  "bullCatalysts": [
+    "Specific upcoming catalyst with context (e.g. product launch, earnings beat, market expansion)",
+    "Second specific catalyst with detail",
+    "Third catalyst",
+    "Fourth catalyst",
+    "Fifth catalyst"
+  ],
+  "bearCatalysts": [
+    "Specific risk with context and why it matters",
+    "Second risk with detail",
+    "Third risk",
+    "Fourth risk",
+    "Fifth risk"
+  ],
+  "keyMetrics": "2-3 sentences on the 2-3 most important metrics or events to watch that will determine whether the bull or bear case plays out"
 }`;
 
     const message = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 512,
+      max_tokens: 900,
       messages: [{ role: 'user', content: prompt }]
     });
 
@@ -400,6 +416,76 @@ Return exactly this JSON structure:
   } catch (err) {
     console.error(`Analysis error for ${symbol}:`, err.message);
     res.status(500).json({ error: 'Analysis failed', details: err.message });
+  }
+});
+
+app.get('/api/macro-report', async (req, res) => {
+  if (!anthropic) {
+    return res.status(503).json({ error: 'ANTHROPIC_API_KEY not set' });
+  }
+
+  const now = Date.now();
+  if (macroReportCache.data && (now - macroReportCache.timestamp) < MACRO_REPORT_CACHE_TTL) {
+    return res.json(macroReportCache.data);
+  }
+
+  try {
+    const fred = await getFredData();
+    if (!fred) return res.status(503).json({ error: 'FRED data unavailable' });
+
+    const { derived, series } = fred;
+    const lines = [];
+
+    if (derived?.fedPolicy?.rate != null) lines.push(`Federal Funds Rate: ${derived.fedPolicy.rate.toFixed(2)}% — ${derived.fedPolicy.stance?.replace('_', ' ') || 'unknown'}`);
+    if (derived?.yieldCurve?.spread10y2y != null) lines.push(`Yield Curve (10Y-2Y): ${derived.yieldCurve.spread10y2y.toFixed(2)}% — ${derived.yieldCurve.inverted ? 'INVERTED (recession signal)' : 'normal'}`);
+    if (derived?.yieldCurve?.spread10y3m != null) lines.push(`Yield Curve (10Y-3M): ${derived.yieldCurve.spread10y3m.toFixed(2)}%`);
+    if (derived?.creditConditions?.hySpread != null) lines.push(`High-Yield Credit Spread: ${derived.creditConditions.hySpread.toFixed(2)}% — ${derived.creditConditions.direction || ''}`);
+    if (series?.CPIAUCSL?.yoyChange != null) lines.push(`CPI Inflation (YoY): ${series.CPIAUCSL.yoyChange.toFixed(1)}% — ${series.CPIAUCSL.direction || ''}`);
+
+    for (const s of Object.values(series)) {
+      if (!s.value || lines.length > 18) continue;
+      lines.push(`${s.name}: ${s.value}${s.unit || ''} (${s.direction || ''} — ${s.classification?.label || ''})`);
+    }
+
+    const prompt = `You are a clear, insightful financial analyst writing a macro economic briefing for everyday investors — people who are smart but don't follow markets every day. Avoid jargon. Explain what the data MEANS for their money, not just what the numbers are. Respond ONLY with valid JSON (no markdown, no code blocks).
+
+CURRENT US ECONOMIC DATA:
+${lines.join('\n')}
+
+Return exactly this JSON:
+{
+  "sentiment": "Bearish|Cautious|Neutral|Optimistic|Bullish",
+  "sentimentReason": "One sentence explaining why you chose that sentiment",
+  "overview": "3-4 sentences: Where is the US economy right now? Is it growing, slowing, or in trouble? Write this for someone who hasn't checked the news in a month.",
+  "whatsDriving": "3-4 sentences: What are the 2-3 biggest forces shaping markets and the economy right now? Be specific — name the actual dynamics at play.",
+  "inflationAndRates": "3-4 sentences: What is happening with prices and interest rates? Is inflation under control? What is the Federal Reserve doing and what does it mean for regular people — mortgages, savings, borrowing?",
+  "laborMarket": "2-3 sentences: How is the jobs market? Are companies hiring or cutting? What does this mean for consumers and the economy?",
+  "creditAndLiquidity": "2-3 sentences: Are banks and investors lending freely or tightening up? Is there financial stress in the system? Plain English.",
+  "risks": [
+    "Risk #1: specific risk explained in plain English — why it matters and what could trigger it",
+    "Risk #2",
+    "Risk #3"
+  ],
+  "opportunities": [
+    "Opportunity #1: where the current macro environment may actually favor investors — be specific",
+    "Opportunity #2"
+  ],
+  "bottomLine": "2-3 sentences: If you had to tell a friend in plain English what this macro environment means for investing right now — what would you say? Practical, honest, no fluff."
+}`;
+
+    const message = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1200,
+      messages: [{ role: 'user', content: prompt }]
+    });
+
+    const text = message.content[0]?.text || '{}';
+    const data = JSON.parse(text);
+    macroReportCache = { data, timestamp: now };
+    res.json(data);
+  } catch (err) {
+    console.error('Macro report error:', err.message);
+    res.status(500).json({ error: 'Macro report failed', details: err.message });
   }
 });
 

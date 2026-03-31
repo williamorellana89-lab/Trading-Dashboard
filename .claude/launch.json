@@ -6,6 +6,7 @@
       "runtimeExecutable": "node",
       "runtimeArgs": ["index.js"],
       "port": 3001,
+      "autoPort": false,
       "cwd": "server"
     },
     {

@@ -789,7 +789,10 @@ function EconomicTab({ fred }) {
         <FredSection title="CURRENCY" items={byCategory.currency} />
       </div>
 
-      {/* Economic Outlook */}
+      {/* AI Macro Report */}
+      <MacroReport />
+
+      {/* Rule-based economic signals */}
       <EconomicOutlook fred={fred} />
 
       <div style={{ fontSize: 10, color: 'var(--text-muted)', padding: '8px 0', textAlign: 'right' }}>
@@ -913,6 +916,8 @@ function NewsItem({ item }) {
   );
 }
 
+const VERDICT_COLORS = { Bullish: 'var(--green)', Neutral: 'var(--amber)', Bearish: 'var(--red)' };
+
 function StockAnalysis({ symbol }) {
   const [analysis, setAnalysis] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -928,21 +933,29 @@ function StockAnalysis({ symbol }) {
       .finally(() => setLoading(false));
   }, [symbol]);
 
-  if (loading) return (
-    <div className="analysis-loading">Generating AI analysis...</div>
-  );
+  if (loading) return <div className="analysis-loading">Generating AI analysis...</div>;
   if (!analysis) return null;
+
+  const verdictColor = VERDICT_COLORS[analysis.verdict] || 'var(--amber)';
 
   return (
     <div className="analysis-section">
-      <div className="detail-section-title">AI Analysis</div>
-      <div className="analysis-grid">
+      <div className="analysis-header-row">
+        <div className="detail-section-title" style={{ marginBottom: 0 }}>AI Analysis</div>
+        {analysis.verdict && (
+          <span className="verdict-badge" style={{ color: verdictColor, borderColor: verdictColor }}>
+            {analysis.verdict.toUpperCase()}
+          </span>
+        )}
+      </div>
+
+      <div className="analysis-grid" style={{ marginTop: 10 }}>
         <div className="analysis-panel bull">
           <div className="analysis-panel-title">Bull Case</div>
           <p className="analysis-text">{analysis.bullCase}</p>
           <div className="catalyst-list">
             {analysis.bullCatalysts?.map((c, i) => (
-              <div key={i} className="catalyst-item bull">+ {c}</div>
+              <div key={i} className="catalyst-item bull"><span className="catalyst-num">{i + 1}</span>{c}</div>
             ))}
           </div>
         </div>
@@ -951,10 +964,21 @@ function StockAnalysis({ symbol }) {
           <p className="analysis-text">{analysis.bearCase}</p>
           <div className="catalyst-list">
             {analysis.bearCatalysts?.map((c, i) => (
-              <div key={i} className="catalyst-item bear">− {c}</div>
+              <div key={i} className="catalyst-item bear"><span className="catalyst-num">{i + 1}</span>{c}</div>
             ))}
           </div>
         </div>
+      </div>
+
+      {analysis.keyMetrics && (
+        <div className="key-metrics-box">
+          <span className="key-metrics-label">Key Metrics to Watch</span>
+          <p className="key-metrics-text">{analysis.keyMetrics}</p>
+        </div>
+      )}
+
+      <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 6 }}>
+        AI-generated · Not financial advice · Cached 4h
       </div>
     </div>
   );
@@ -1048,7 +1072,7 @@ function EconomicOutlook({ fred }) {
 
   return (
     <div className="analysis-section">
-      <div className="detail-section-title">Economic Outlook</div>
+      <div className="detail-section-title">Economic Signals</div>
       <div className="analysis-grid">
         <div className="analysis-panel bull">
           <div className="analysis-panel-title">Bullish Factors</div>
@@ -1058,6 +1082,112 @@ function EconomicOutlook({ fred }) {
           <div className="analysis-panel-title">Bearish Factors</div>
           {bearPoints.slice(0, 6).map((p, i) => <div key={i} className="catalyst-item bear">− {p}</div>)}
         </div>
+      </div>
+    </div>
+  );
+}
+
+const SENTIMENT_COLORS = {
+  Bullish: 'var(--green)', Optimistic: 'var(--green)',
+  Neutral: 'var(--amber)',
+  Cautious: 'var(--red)', Bearish: 'var(--red)'
+};
+
+function MacroReport() {
+  const [report, setReport] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/macro-report`)
+      .then(r => r.json())
+      .then(d => { if (d.error) setError(d.error); else setReport(d); })
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return (
+    <div className="macro-report-loading">
+      <div className="analysis-loading">Generating macro report...</div>
+    </div>
+  );
+  if (error || !report) return null;
+
+  const sentimentColor = SENTIMENT_COLORS[report.sentiment] || 'var(--amber)';
+
+  return (
+    <div className="macro-report">
+      {/* Header */}
+      <div className="macro-report-header" style={{ borderLeftColor: sentimentColor }}>
+        <div className="macro-report-title">Macro Economic Report</div>
+        <div className="macro-sentiment-row">
+          <span className="macro-sentiment-badge" style={{ color: sentimentColor, borderColor: sentimentColor }}>
+            {report.sentiment?.toUpperCase()}
+          </span>
+          <span className="macro-sentiment-reason">{report.sentimentReason}</span>
+        </div>
+      </div>
+
+      {/* Overview */}
+      <div className="macro-section">
+        <div className="macro-section-label">Overview</div>
+        <p className="macro-text">{report.overview}</p>
+      </div>
+
+      {/* What's Driving */}
+      <div className="macro-section">
+        <div className="macro-section-label">What's Driving Markets</div>
+        <p className="macro-text">{report.whatsDriving}</p>
+      </div>
+
+      {/* Two-col: Inflation+Rates / Labor */}
+      <div className="macro-two-col">
+        <div className="macro-section">
+          <div className="macro-section-label">Inflation & Interest Rates</div>
+          <p className="macro-text">{report.inflationAndRates}</p>
+        </div>
+        <div className="macro-section">
+          <div className="macro-section-label">Labor Market</div>
+          <p className="macro-text">{report.laborMarket}</p>
+        </div>
+      </div>
+
+      {/* Credit */}
+      <div className="macro-section">
+        <div className="macro-section-label">Credit & Liquidity</div>
+        <p className="macro-text">{report.creditAndLiquidity}</p>
+      </div>
+
+      {/* Risks & Opportunities */}
+      <div className="macro-two-col">
+        <div className="macro-section">
+          <div className="macro-section-label" style={{ color: 'var(--red)' }}>Risks to Watch</div>
+          {report.risks?.map((r, i) => (
+            <div key={i} className="macro-bullet bear">
+              <span className="macro-bullet-num">{i + 1}</span>
+              <span>{r}</span>
+            </div>
+          ))}
+        </div>
+        <div className="macro-section">
+          <div className="macro-section-label" style={{ color: 'var(--green)' }}>Opportunities</div>
+          {report.opportunities?.map((o, i) => (
+            <div key={i} className="macro-bullet bull">
+              <span className="macro-bullet-num">{i + 1}</span>
+              <span>{o}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Bottom Line */}
+      <div className="macro-bottom-line" style={{ borderLeftColor: sentimentColor }}>
+        <div className="macro-section-label">Bottom Line</div>
+        <p className="macro-text">{report.bottomLine}</p>
+      </div>
+
+      <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 8 }}>
+        AI-generated macro analysis · Updated every 2 hours · Not financial advice
       </div>
     </div>
   );
