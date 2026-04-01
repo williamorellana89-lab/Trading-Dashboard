@@ -1,4 +1,7 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import { resolve, dirname } from 'path';
+import { fileURLToPath as _ftu } from 'url';
+dotenv.config({ path: resolve(dirname(_ftu(import.meta.url)), '.env') });
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
@@ -46,6 +49,12 @@ const ANALYSIS_CACHE_TTL = 4 * 60 * 60 * 1000;    // 4 hours
 const MARKET_NEWS_CACHE_TTL = 5 * 60 * 1000;      // 5 minutes
 const MACRO_REPORT_CACHE_TTL = 30 * 60 * 1000; // 30 minutes — refresh to catch changing news
 const MARKET_BRIEFING_CACHE_TTL = 10 * 60 * 1000; // 10 minutes — RSS refreshes frequently
+
+function parseAiJson(text) {
+  // Strip markdown code fences if Claude wraps the response
+  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  return JSON.parse(cleaned);
+}
 
 const anthropic = process.env.ANTHROPIC_API_KEY
   ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -413,7 +422,7 @@ Return exactly this JSON:
     });
 
     const text = message.content[0]?.text || '{}';
-    const data = JSON.parse(text);
+    const data = parseAiJson(text);
     analysisCache[symbol] = { data, timestamp: now };
     res.json(data);
   } catch (err) {
@@ -492,7 +501,7 @@ Return exactly this JSON:
     });
 
     const text = message.content[0]?.text || '{}';
-    const data = JSON.parse(text);
+    const data = parseAiJson(text);
     macroReportCache = { data, timestamp: now };
     res.json(data);
   } catch (err) {
@@ -626,7 +635,7 @@ Rules:
     });
 
     const text = message.content[0]?.text || '{}';
-    const briefing = JSON.parse(text);
+    const briefing = parseAiJson(text);
     const data = { ...briefing, headlines: allNews.slice(0, 15), updatedAt: new Date().toISOString() };
     marketBriefingCache = { data, timestamp: now };
     res.json(data);
