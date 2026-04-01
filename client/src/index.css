@@ -1298,6 +1298,49 @@ body {
 .briefing-watchlist {
   padding-top: 4px;
 }
+.briefing-sector-row {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.briefing-sector-row:last-child { border-bottom: none; }
+.briefing-sector-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 2px;
+}
+.briefing-sector-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.briefing-sector-bias {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.briefing-cal-row {
+  display: flex;
+  gap: 14px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.briefing-cal-row:last-child { border-bottom: none; }
+.briefing-cal-date {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--blue);
+  white-space: nowrap;
+  padding-top: 2px;
+  min-width: 70px;
+}
+.briefing-cal-event {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
 .briefing-watch-item {
   display: flex;
   gap: 10px;

@@ -589,7 +589,11 @@ app.get('/api/market-briefing', async (req, res) => {
       ? `SPY: $${spy.price?.toFixed(2)} (${spy.changePct?.toFixed(2)}%), VIX: ${vix.price?.toFixed(2)}, Score: ${marketData?.scored?.marketQuality}%`
       : '';
 
-    const prompt = `You are an elite market analyst writing a structured daily briefing for serious active investors. Be specific — use real names, quotes (if in headlines), numbers, and sources. Your tone is direct, unbiased, and treats the reader as an intelligent adult who wants to know what it means for their money.
+    const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+
+    const prompt = `You are an elite market analyst writing a Monday-morning-style daily briefing for serious active investors. Be specific — use real names, quotes, numbers, and sources from the headlines. Treat the reader as an intelligent adult who wants to know what it means for their money. Keep each section focused and concise.
+
+TODAY: ${today}
 
 CURRENT MARKET SNAPSHOT:
 ${marketSnap || 'Market data unavailable'}
@@ -599,38 +603,55 @@ ${headlines || 'No headlines available'}
 
 Respond with ONLY valid JSON (no markdown, no code blocks):
 {
-  "topTheme": "5-8 word label capturing today's dominant market theme (e.g. 'Iran War Risk & Fed Pivot Speculation')",
+  "topTheme": "5-8 word label capturing today's dominant market theme",
+  "marketSummary": "2-3 sentences: What happened in markets today? Name the key indices and moves. What drove the action? Ground the reader immediately.",
   "topEvent": {
-    "title": "Descriptive title — e.g. 'Powell at Harvard — the single most important event'",
-    "body": "3-5 sentences. Lead with who said/did what. Include direct quotes if available. Name the source. Include specific numbers — rate levels, price moves, percentages. Be precise.",
-    "implication": "2-3 sentences. Start with 'Critical implication:'. Tell investors exactly what this means for markets — which assets are affected, which direction, what to watch for next. Specific and actionable."
+    "title": "Who/What — the single most important story",
+    "body": "4-5 sentences. Lead with exactly what happened, who said what (include direct quotes), specific numbers. Name sources. Be precise and factual.",
+    "implication": "2-3 sentences starting with 'Critical implication:'. Which assets are directly affected? What should investors watch for next? Give specific levels or triggers where possible."
   },
   "developments": [
     {
-      "title": "Short descriptive title for this development",
-      "body": "2-4 sentences covering the key facts, quotes, and numbers. Name the source.",
-      "implication": "1-2 sentences on what this means for investors or specific assets."
+      "title": "Short punchy title",
+      "body": "3-4 sentences with facts, quotes, and numbers from headlines.",
+      "implication": "1-2 sentences on direct investment impact."
+    }
+  ],
+  "economicCalendar": [
+    {
+      "date": "Day, Month Date",
+      "event": "Event name",
+      "detail": "1-2 sentences: What to expect, why it matters, what the market is pricing in."
+    }
+  ],
+  "sectorSetups": [
+    {
+      "sector": "Sector or ETF name (e.g. Energy / XLE)",
+      "bias": "Bullish|Bearish|Neutral",
+      "body": "2-3 sentences: What is the setup? What catalyst supports it? What to watch."
     }
   ],
   "institutionalSignals": [
     {
-      "title": "Firm name + what they did (e.g. 'Morgan Stanley: Major Downgrade of Global Equities')",
-      "body": "2-3 sentences. What did they do? What did they say? Quote them if possible.",
-      "implication": "1-2 sentences. This is a huge signal — explain why it matters."
+      "title": "Firm + action",
+      "body": "2-3 sentences with what they did, what they said.",
+      "implication": "1 sentence on why this matters."
     }
   ],
-  "watchlist": ["Specific thing to watch #1 in next 24-72h", "Specific thing to watch #2", "Specific thing to watch #3"]
+  "watchlist": ["Specific actionable item #1 — include timing", "Item #2", "Item #3"]
 }
 
 Rules:
-- Only include developments that are actually in the headlines. Do not fabricate.
-- developments array: 2-4 items max covering the next most important stories
-- institutionalSignals array: 0-3 items — only include if major banks/funds made calls visible in the headlines. Empty array if none.
-- watchlist: exactly 3 specific, actionable things to monitor`;
+- Only use information from the provided headlines. Do not fabricate events.
+- developments: 2-3 items
+- economicCalendar: 2-4 upcoming events based on typical market calendar for this period
+- sectorSetups: 2-3 sectors with clear bias driven by today's news
+- institutionalSignals: empty array [] if no major bank calls in headlines
+- watchlist: exactly 3 specific actionable items with timing`;
 
     const message = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1400,
+      max_tokens: 2000,
       messages: [{ role: 'user', content: prompt }]
     });
 

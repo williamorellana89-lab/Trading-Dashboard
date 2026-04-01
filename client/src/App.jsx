@@ -1181,13 +1181,13 @@ function MarketBriefing() {
   if (loading) return <div className="briefing-loading">Loading market briefing...</div>;
   if (!data) return null;
 
+  const BIAS_COLOR = { Bullish: 'var(--green)', Bearish: 'var(--red)', Neutral: 'var(--amber)' };
+
   const BriefingCard = ({ item, isTop }) => (
     <div className={`eco-section${isTop ? ' briefing-top-card' : ''}`}>
       <div className="eco-section-title">{item.title}</div>
       <p className="eco-section-text">{item.body}</p>
-      {item.implication && (
-        <div className="briefing-implication">{item.implication}</div>
-      )}
+      {item.implication && <div className="briefing-implication">{item.implication}</div>}
     </div>
   );
 
@@ -1199,16 +1199,61 @@ function MarketBriefing() {
         {data.updatedAt && <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 400, marginLeft: 'auto' }}>{new Date(data.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
       </div>
 
+      {/* Market summary */}
+      {data.marketSummary && (
+        <div className="eco-section">
+          <div className="eco-section-title">Today's Market</div>
+          <p className="eco-section-text">{data.marketSummary}</p>
+        </div>
+      )}
+
+      {/* Top event */}
       {data.topEvent && <BriefingCard item={data.topEvent} isTop />}
+
+      {/* Other developments */}
       {data.developments?.map((d, i) => <BriefingCard key={i} item={d} />)}
 
+      {/* Institutional signals */}
       {data.institutionalSignals?.length > 0 && (
         <>
-          <div className="eco-section-title" style={{ padding: '4px 0', color: 'var(--text-muted)' }}>Institutional Signals</div>
+          <div className="briefing-subsection-label">Institutional Signals</div>
           {data.institutionalSignals.map((s, i) => <BriefingCard key={i} item={s} />)}
         </>
       )}
 
+      {/* Sector setups */}
+      {data.sectorSetups?.length > 0 && (
+        <div className="eco-section">
+          <div className="eco-section-title">Sector Setups</div>
+          {data.sectorSetups.map((s, i) => (
+            <div key={i} className="briefing-sector-row">
+              <div className="briefing-sector-header">
+                <span className="briefing-sector-name">{s.sector}</span>
+                <span className="briefing-sector-bias" style={{ color: BIAS_COLOR[s.bias] || 'var(--text-muted)' }}>{s.bias}</span>
+              </div>
+              <p className="eco-section-text" style={{ margin: '4px 0 0 0' }}>{s.body}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Economic calendar */}
+      {data.economicCalendar?.length > 0 && (
+        <div className="eco-section">
+          <div className="eco-section-title">Economic Calendar</div>
+          {data.economicCalendar.map((e, i) => (
+            <div key={i} className="briefing-cal-row">
+              <span className="briefing-cal-date">{e.date}</span>
+              <div>
+                <div className="briefing-cal-event">{e.event}</div>
+                <p className="eco-section-text" style={{ margin: '2px 0 0 0' }}>{e.detail}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Watchlist */}
       {data.watchlist?.length > 0 && (
         <div className="eco-section">
           <div className="eco-section-title">Watch in Next 24–72h</div>
@@ -1221,7 +1266,7 @@ function MarketBriefing() {
         </div>
       )}
 
-      {/* Live headlines at the bottom */}
+      {/* Live headlines */}
       {data.headlines?.length > 0 && (
         <div className="eco-section">
           <div className="eco-section-title">Live Headlines</div>
